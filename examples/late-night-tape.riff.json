@@ -1,0 +1,405 @@
+{
+  "title": "Late Night Tape",
+  "bpm": 84,
+  "key": "A minor",
+  "bars": 2,
+  "swing": 0.18,
+  "tracks": [
+    {
+      "id": "drums",
+      "name": "Drums",
+      "instrument": "drums",
+      "volume": 0.85,
+      "muted": false,
+      "notes": [
+        {
+          "pitch": "kick",
+          "start": 0,
+          "length": 1,
+          "velocity": 1
+        },
+        {
+          "pitch": "kick",
+          "start": 7,
+          "length": 1,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "kick",
+          "start": 10,
+          "length": 1,
+          "velocity": 0.9
+        },
+        {
+          "pitch": "snare",
+          "start": 4,
+          "length": 1,
+          "velocity": 0.9
+        },
+        {
+          "pitch": "snare",
+          "start": 12,
+          "length": 1,
+          "velocity": 0.95
+        },
+        {
+          "pitch": "hat",
+          "start": 0,
+          "length": 1,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "hat",
+          "start": 2,
+          "length": 1,
+          "velocity": 0.45
+        },
+        {
+          "pitch": "hat",
+          "start": 4,
+          "length": 1,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "hat",
+          "start": 6,
+          "length": 1,
+          "velocity": 0.45
+        },
+        {
+          "pitch": "hat",
+          "start": 8,
+          "length": 1,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "hat",
+          "start": 10,
+          "length": 1,
+          "velocity": 0.45
+        },
+        {
+          "pitch": "hat",
+          "start": 12,
+          "length": 1,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "hat",
+          "start": 14,
+          "length": 1,
+          "velocity": 0.45
+        },
+        {
+          "pitch": "kick",
+          "start": 16,
+          "length": 1,
+          "velocity": 1
+        },
+        {
+          "pitch": "kick",
+          "start": 23,
+          "length": 1,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "kick",
+          "start": 26,
+          "length": 1,
+          "velocity": 0.9
+        },
+        {
+          "pitch": "snare",
+          "start": 20,
+          "length": 1,
+          "velocity": 0.9
+        },
+        {
+          "pitch": "snare",
+          "start": 28,
+          "length": 1,
+          "velocity": 0.95
+        },
+        {
+          "pitch": "hat",
+          "start": 16,
+          "length": 1,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "hat",
+          "start": 18,
+          "length": 1,
+          "velocity": 0.45
+        },
+        {
+          "pitch": "hat",
+          "start": 20,
+          "length": 1,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "hat",
+          "start": 22,
+          "length": 1,
+          "velocity": 0.45
+        },
+        {
+          "pitch": "hat",
+          "start": 24,
+          "length": 1,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "hat",
+          "start": 26,
+          "length": 1,
+          "velocity": 0.45
+        },
+        {
+          "pitch": "hat",
+          "start": 28,
+          "length": 1,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "hat",
+          "start": 30,
+          "length": 1,
+          "velocity": 0.45
+        },
+        {
+          "pitch": "openhat",
+          "start": 30,
+          "length": 1,
+          "velocity": 0.6
+        }
+      ]
+    },
+    {
+      "id": "bass",
+      "name": "Bass",
+      "instrument": "bass",
+      "volume": 0.8,
+      "muted": false,
+      "notes": [
+        {
+          "pitch": "A1",
+          "start": 0,
+          "length": 3,
+          "velocity": 0.9
+        },
+        {
+          "pitch": "A1",
+          "start": 6,
+          "length": 2,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "F1",
+          "start": 8,
+          "length": 3,
+          "velocity": 0.9
+        },
+        {
+          "pitch": "F1",
+          "start": 14,
+          "length": 1,
+          "velocity": 0.6
+        },
+        {
+          "pitch": "D1",
+          "start": 16,
+          "length": 3,
+          "velocity": 0.9
+        },
+        {
+          "pitch": "D2",
+          "start": 22,
+          "length": 1,
+          "velocity": 0.6
+        },
+        {
+          "pitch": "E1",
+          "start": 24,
+          "length": 3,
+          "velocity": 0.9
+        },
+        {
+          "pitch": "G#1",
+          "start": 30,
+          "length": 2,
+          "velocity": 0.7
+        }
+      ]
+    },
+    {
+      "id": "keys",
+      "name": "Rhodes",
+      "instrument": "keys",
+      "volume": 0.6,
+      "muted": false,
+      "notes": [
+        {
+          "pitch": "A3",
+          "start": 0,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "C4",
+          "start": 0,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "E4",
+          "start": 0,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "G4",
+          "start": 0,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "F3",
+          "start": 8,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "A3",
+          "start": 8,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "C4",
+          "start": 8,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "E4",
+          "start": 8,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "D3",
+          "start": 16,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "F3",
+          "start": 16,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "A3",
+          "start": 16,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "C4",
+          "start": 16,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "E3",
+          "start": 24,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "G#3",
+          "start": 24,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "B3",
+          "start": 24,
+          "length": 7,
+          "velocity": 0.55
+        },
+        {
+          "pitch": "D4",
+          "start": 24,
+          "length": 7,
+          "velocity": 0.55
+        }
+      ]
+    },
+    {
+      "id": "lead",
+      "name": "Melody",
+      "instrument": "pluck",
+      "volume": 0.55,
+      "muted": false,
+      "notes": [
+        {
+          "pitch": "E5",
+          "start": 2,
+          "length": 2,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "D5",
+          "start": 4,
+          "length": 1,
+          "velocity": 0.6
+        },
+        {
+          "pitch": "C5",
+          "start": 5,
+          "length": 3,
+          "velocity": 0.75
+        },
+        {
+          "pitch": "A4",
+          "start": 10,
+          "length": 2,
+          "velocity": 0.6
+        },
+        {
+          "pitch": "C5",
+          "start": 12,
+          "length": 4,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "B4",
+          "start": 18,
+          "length": 2,
+          "velocity": 0.65
+        },
+        {
+          "pitch": "A4",
+          "start": 20,
+          "length": 4,
+          "velocity": 0.7
+        },
+        {
+          "pitch": "G#4",
+          "start": 26,
+          "length": 2,
+          "velocity": 0.6
+        },
+        {
+          "pitch": "B4",
+          "start": 28,
+          "length": 4,
+          "velocity": 0.7
+        }
+      ]
+    }
+  ]
+}
