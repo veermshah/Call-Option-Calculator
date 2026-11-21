@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Settings } from '@shared/ipc'
+import { api, isDesktop } from '../lib/api'
 
 interface Props {
   settings: Settings
@@ -21,8 +22,8 @@ export function SettingsModal({ settings, onClose, onSaved }: Props) {
   const save = async () => {
     setSaving(true)
     let s = settings
-    if (key.trim()) s = await window.riff.setApiKey(key)
-    if (model !== settings.model) s = await window.riff.setModel(model)
+    if (key.trim()) s = await api.setApiKey(key)
+    if (model !== settings.model) s = await api.setModel(model)
     setSaving(false)
     onSaved(s)
   }
@@ -40,7 +41,11 @@ export function SettingsModal({ settings, onClose, onSaved }: Props) {
             placeholder={settings.hasApiKey ? '•••••••• saved — paste a new key to replace' : 'sk-ant-…'}
             onChange={(e) => setKey(e.target.value)}
           />
-          <small>Stored on this computer, encrypted with your OS keychain. Falls back to the ANTHROPIC_API_KEY environment variable.</small>
+          <small>
+            {isDesktop
+              ? 'Stored on this computer, encrypted with your OS keychain. Falls back to the ANTHROPIC_API_KEY environment variable.'
+              : 'Stored only in this browser. Requests go straight from your browser to api.anthropic.com; this site never sees your key.'}
+          </small>
         </label>
         <label>
           Model
@@ -55,7 +60,7 @@ export function SettingsModal({ settings, onClose, onSaved }: Props) {
           {settings.hasApiKey && (
             <button
               className="danger"
-              onClick={async () => onSaved(await window.riff.setApiKey(''))}
+              onClick={async () => onSaved(await api.setApiKey(''))}
             >
               Remove saved key
             </button>

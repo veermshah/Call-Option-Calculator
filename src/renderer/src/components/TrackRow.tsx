@@ -36,6 +36,13 @@ export function TrackRow({ track, bars, playStep, selected, soloed, onSelect, on
           ))}
         </select>
         <div className="track-buttons" onClick={(e) => e.stopPropagation()}>
+          <button
+            className={`toggle lock${track.locked ? ' on' : ''}`}
+            title={track.locked ? 'Locked: Claude keeps this part exactly as is' : 'Lock so Claude never changes this part'}
+            onClick={() => onUpdate({ locked: !track.locked })}
+          >
+            {track.locked ? '🔒' : '🔓'}
+          </button>
           <button className={`toggle${track.muted ? ' on' : ''}`} title="Mute" onClick={() => onUpdate({ muted: !track.muted })}>M</button>
           <button className={`toggle solo${soloed ? ' on' : ''}`} title="Solo" onClick={onSolo}>S</button>
           <input

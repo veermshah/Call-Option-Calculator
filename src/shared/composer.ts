@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { DRUM_SOUNDS, INSTRUMENTS, STEPS_PER_BAR, normalizeSong, type Song } from '@shared/song'
-import type { ComposeRequest, ComposeResult } from '@shared/ipc'
+import { DRUM_SOUNDS, INSTRUMENTS, STEPS_PER_BAR, normalizeSong, type Song, type Track } from './song'
+import type { ComposeRequest, ComposeResult } from './ipc'
 
 export const DEFAULT_MODEL = 'claude-opus-5-5'
 
@@ -67,19 +67,37 @@ How the studio works:
 - Sensible ranges: bass C1-C3, keys and pads C3-C5, lead and pluck C4-C6.
 - Each track is one instrument. Use a handful of tracks (typically 3-6), each with a clear role.
 
+Some tracks may be marked LOCKED: the musician played them by hand. Never change a locked track's notes; return it exactly as given (same name, instrument and notes) and write the other parts to fit it: match its harmony, rhythm and register, and avoid clashing with it.
+
 When the musician asks for a change, start from the current song you're given and change only what they asked for, keeping track names stable so their mix settings survive. When they ask for something new, write it from scratch.
 
 Write music that sounds intentional: stay in key, give basslines and melodies shape and repetition with variation, vary velocity for groove, and leave space. Return the complete song every time, every note included.`
 
 function userContent(req: ComposeRequest): string {
+  const locked = new Set(req.lockedTrackIds ?? [])
   const current = req.song.tracks.length
-    ? JSON.stringify({ ...req.song, tracks: req.song.tracks.map(({ id: _id, muted: _m, ...t }) => t) })
+    ? JSON.stringify({
+        ...req.song,
+        tracks: req.song.tracks.map(({ id, muted: _m, locked: _l, ...t }) => (locked.has(id) ? { ...t, locked: true } : t))
+      })
     : '(empty — nothing composed yet)'
-  return `Current song:\n${current}\n\nRequest: ${req.prompt}`
+  const lockedNames = req.song.tracks.filter((t) => locked.has(t.id)).map((t) => `"${t.name}"`)
+  const lockNote = lockedNames.length ? `\n\nLOCKED tracks (return unchanged): ${lockedNames.join(', ')}` : ''
+  return `Current song:\n${current}${lockNote}\n\nRequest: ${req.prompt}`
+}
+
+/** Put locked tracks back exactly as the musician played them, whatever the model returned. */
+export function restoreLocked(song: Song, previous: Song, lockedIds: string[]): Song {
+  if (!lockedIds.length) return song
+  const locked = previous.tracks.filter((t) => lockedIds.includes(t.id))
+  const names = new Set(locked.map((t) => t.name.toLowerCase()))
+  const others = song.tracks.filter((t) => !lockedIds.includes(t.id) && !names.has(t.name.toLowerCase()))
+  const tracks: Track[] = [...locked.map((t) => ({ ...t, notes: t.notes.map((n) => ({ ...n })) })), ...others]
+  return { ...song, tracks }
 }
 
 /** Parse Claude's text output into a validated song, keeping ids and mute state of tracks that survive. */
-export function parseComposeOutput(text: string, previous: Song): ComposeResult {
+export function parseComposeOutput(text: string, previous: Song, lockedIds: string[] = []): ComposeResult {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
@@ -100,7 +118,7 @@ export function parseComposeOutput(text: string, previous: Song): ComposeResult 
     }
   }
   const message = typeof obj.message === 'string' && obj.message ? obj.message : 'Done.'
-  return { ok: true, song, message }
+  return { ok: true, song: restoreLocked(song, previous, lockedIds), message }
 }
 
 export async function compose(
@@ -108,9 +126,12 @@ export async function compose(
   model: string,
   req: ComposeRequest,
   onProgress: (chars: number) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  opts: { browser?: boolean } = {}
 ): Promise<ComposeResult> {
-  const client = new Anthropic({ apiKey })
+  // In the web build the visitor's own key is used straight from their browser,
+  // so it only ever goes to api.anthropic.com.
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: opts.browser === true })
 
   const messages: Anthropic.Beta.BetaMessageParam[] = [
     ...req.history.slice(-8).map((t) => ({ role: t.role, content: t.text })),
@@ -155,7 +176,7 @@ export async function compose(
       .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
       .map((b) => b.text)
       .join('')
-    return parseComposeOutput(text, req.song)
+    return parseComposeOutput(text, req.song, req.lockedTrackIds ?? [])
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) {
       return { ok: false, error: 'Your API key was rejected. Check it in Settings.' }

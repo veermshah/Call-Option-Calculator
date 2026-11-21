@@ -27,6 +27,8 @@ export interface Track {
   /** 0..1 */
   volume: number
   muted: boolean
+  /** Played by hand: Claude must not change it. */
+  locked: boolean
   notes: Note[]
 }
 
@@ -117,6 +119,7 @@ export function normalizeSong(raw: unknown): Song {
       instrument,
       volume: clamp(num(tr.volume, 0.8), 0, 1),
       muted: tr.muted === true,
+      locked: tr.locked === true,
       notes
     }
   })

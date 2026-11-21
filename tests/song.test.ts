@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { midiToPitch, normalizeSong, pitchToMidi } from '@shared/song'
 import { songToMidi } from '@shared/midi'
-import { parseComposeOutput } from '../src/main/composer'
+import { parseComposeOutput } from '@shared/composer'
 
 describe('pitch helpers', () => {
   it('round-trips pitches', () => {

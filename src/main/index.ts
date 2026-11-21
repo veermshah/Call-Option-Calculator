@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electro
 import { readFile, writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { compose, DEFAULT_MODEL } from './composer'
+import { compose, DEFAULT_MODEL } from '@shared/composer'
 import { normalizeSong, type Song } from '@shared/song'
 import type { ComposeRequest, Settings } from '@shared/ipc'
 

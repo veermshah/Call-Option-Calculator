@@ -11,6 +11,8 @@ export interface ComposeRequest {
   song: Song
   /** Recent conversation, oldest first, for context. */
   history: ChatTurn[]
+  /** Tracks the musician played by hand; Claude must leave them untouched. */
+  lockedTrackIds?: string[]
 }
 
 export type ComposeResult =

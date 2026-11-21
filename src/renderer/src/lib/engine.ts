@@ -7,6 +7,9 @@ import { STEPS_PER_BAR } from '@shared/song'
 
 interface Voice {
   trigger(note: Note, time: number, stepSeconds: number): void
+  /** Live play from the computer keyboard: hold until release. */
+  attack(pitch: string, velocity: number): void
+  release(pitch: string): void
   output: Tone.Volume
   dispose(): void
 }
@@ -86,7 +89,13 @@ function makeVoice(track: Track, master: Tone.ToneAudioNode, reverb: Tone.ToneAu
   const output = new Tone.Volume(dbFromGain(track.volume)).connect(master)
   if (track.instrument === 'drums') {
     const kit = drumKit(output)
-    return { output, trigger: kit.trigger, dispose: () => { kit.dispose(); output.dispose() } }
+    return {
+      output,
+      trigger: kit.trigger,
+      attack: (pitch, velocity) => kit.trigger({ pitch, start: 0, length: 1, velocity }, Tone.now() + 0.005, 0),
+      release: () => {},
+      dispose: () => { kit.dispose(); output.dispose() }
+    }
   }
   const synth = melodic(track.instrument, output, reverb)
   synth.volume.value = -8
@@ -94,6 +103,11 @@ function makeVoice(track: Track, master: Tone.ToneAudioNode, reverb: Tone.ToneAu
     output,
     trigger: (note, time, stepSeconds) => {
       synth.triggerAttackRelease(note.pitch, Math.max(0.03, note.length * stepSeconds * 0.95), time, note.velocity)
+    },
+    attack: (pitch, velocity) => synth.triggerAttack(pitch, Tone.now() + 0.005, velocity),
+    release: (pitch) => {
+      if (synth instanceof Tone.MonoSynth) synth.triggerRelease(Tone.now() + 0.005)
+      else synth.triggerRelease(pitch, Tone.now() + 0.005)
     },
     dispose: () => { synth.dispose(); output.dispose() }
   }
@@ -171,6 +185,26 @@ export class Engine {
     }
     this.step = 0
     this.onStep?.(-1)
+  }
+
+  /** Current playback position in (fractional) 16th steps within the loop, or -1 when stopped. */
+  position(): number {
+    const transport = Tone.getTransport()
+    if (!this.song || transport.state !== 'started') return -1
+    const total = this.song.bars * STEPS_PER_BAR
+    // Use the time the listener is hearing now (no scheduling look-ahead) so
+    // recorded notes land where they were played.
+    const steps = transport.getTicksAtTime(Tone.immediate()) / (transport.PPQ / 4)
+    return ((steps % total) + total) % total
+  }
+
+  async noteOn(trackId: string, pitch: string, velocity = 0.8) {
+    await Tone.start()
+    this.voices.get(trackId)?.voice.attack(pitch, velocity)
+  }
+
+  noteOff(trackId: string, pitch: string) {
+    this.voices.get(trackId)?.voice.release(pitch)
   }
 
   /** Audition a single note (e.g. when clicking the piano roll). */

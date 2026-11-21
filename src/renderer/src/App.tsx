@@ -7,6 +7,8 @@ import { useHistory } from './lib/useHistory'
 import { ChatPanel } from './components/ChatPanel'
 import { TrackRow } from './components/TrackRow'
 import { SettingsModal } from './components/SettingsModal'
+import { KeyboardPanel } from './components/KeyboardPanel'
+import { api } from './lib/api'
 
 type Turn = ChatTurn & { error?: boolean }
 
@@ -23,6 +25,8 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null)
   const [solo, setSolo] = useState<string | null>(null)
   const [status, setStatus] = useState('')
+  const [showKeys, setShowKeys] = useState(false)
+  const [recording, setRecording] = useState(false)
   const engine = useRef<Engine | null>(null)
 
   // Engine lifecycle
@@ -42,8 +46,8 @@ export default function App() {
   }, [solo])
 
   useEffect(() => {
-    window.riff.getSettings().then(setSettings)
-    return window.riff.onComposeProgress(setProgress)
+    api.getSettings().then(setSettings)
+    return api.onComposeProgress(setProgress)
   }, [])
 
   const flash = (msg: string) => {
@@ -57,6 +61,7 @@ export default function App() {
     if (e.playing) {
       e.stop()
       setPlaying(false)
+      setRecording(false)
     } else {
       await e.play()
       setPlaying(true)
@@ -67,7 +72,10 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement).closest('input, textarea, select')
-      if (e.code === 'Space' && !typing) {
+      if (e.code === 'Backquote' && !typing) {
+        e.preventDefault()
+        setShowKeys((v) => !v)
+      } else if (e.code === 'Space' && !typing) {
         e.preventDefault()
         togglePlay()
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !typing) {
@@ -93,7 +101,7 @@ export default function App() {
   }
 
   const addTrack = () => {
-    const t: Track = { id: newId(), name: `Track ${song.tracks.length + 1}`, instrument: 'keys', volume: 0.8, muted: false, notes: [] }
+    const t: Track = { id: newId(), name: `Track ${song.tracks.length + 1}`, instrument: 'keys', volume: 0.8, muted: false, locked: false, notes: [] }
     history.set({ ...song, tracks: [...song.tracks, t] })
     setSelected(t.id)
   }
@@ -103,12 +111,63 @@ export default function App() {
     if (solo === id) setSolo(null)
   }
 
+  // When the keyboard opens with nothing to play into, make a track for it.
+  useEffect(() => {
+    if (!showKeys) {
+      setRecording(false)
+      return
+    }
+    if (selected && song.tracks.some((t) => t.id === selected)) return
+    const t: Track = { id: newId(), name: 'My Part', instrument: 'keys', volume: 0.8, muted: false, locked: true, notes: [] }
+    history.set({ ...song, tracks: [t, ...song.tracks] })
+    setSelected(t.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showKeys])
+
+  const keyTarget = song.tracks.find((t) => t.id === selected) ?? null
+
+  const toggleRecord = async () => {
+    if (recording) return setRecording(false)
+    if (!engine.current?.playing) {
+      await engine.current?.play()
+      setPlaying(true)
+    }
+    setRecording(true)
+  }
+
+  const recordNotes = (trackId: string, notes: Note[]) => {
+    history.set((prev) =>
+      normalizeSong({
+        ...prev,
+        tracks: prev.tracks.map((t) =>
+          t.id === trackId ? { ...t, locked: true, notes: [...t.notes.filter((n) => !notes.some((m) => m.pitch === n.pitch && m.start === n.start)), ...notes] } : t
+        )
+      })
+    )
+  }
+
+  const buildBand = () => {
+    if (!keyTarget) return
+    setRecording(false)
+    const others = song.tracks.filter((t) => t.id !== keyTarget.id && t.notes.length)
+    send(
+      others.length
+        ? `Rework the other parts so they fit my played part "${keyTarget.name}" closely. Keep my part exactly as played.`
+        : `I played "${keyTarget.name}" myself. Build a full band around it: drums, a bassline that follows my harmony, and one or two more parts that complement it. Keep my part exactly as played, and pick a tempo-appropriate groove for ${song.bpm} bpm.`
+    )
+  }
+
   const send = async (prompt: string) => {
     const priorTurns = turns.filter((t) => !t.error)
     setTurns((t) => [...t, { role: 'user', text: prompt }])
     setBusy(true)
     setProgress(0)
-    const res = await window.riff.compose({ prompt, song, history: priorTurns.map(({ role, text }) => ({ role, text })) })
+    const res = await api.compose({
+      prompt,
+      song,
+      history: priorTurns.map(({ role, text }) => ({ role, text })),
+      lockedTrackIds: song.tracks.filter((t) => t.locked).map((t) => t.id)
+    })
     setBusy(false)
     if (res.ok) {
       history.set(res.song)
@@ -124,12 +183,12 @@ export default function App() {
   }
 
   const save = async () => {
-    const path = await window.riff.saveProject(song)
+    const path = await api.saveProject(song)
     if (path) flash(`Saved ${path}`)
   }
 
   const open = async () => {
-    const s = await window.riff.openProject()
+    const s = await api.openProject()
     if (s) {
       history.set(s)
       setSelected(s.tracks[0]?.id ?? null)
@@ -138,7 +197,7 @@ export default function App() {
   }
 
   const exportMidi = async () => {
-    const path = await window.riff.exportMidi(songToMidi(song, 4), song.title)
+    const path = await api.exportMidi(songToMidi(song, 4), song.title)
     if (path) flash(`Exported ${path}`)
   }
 
@@ -178,6 +237,7 @@ export default function App() {
         <button onClick={open}>Open</button>
         <button onClick={save}>Save</button>
         <button onClick={exportMidi} disabled={!song.tracks.length}>Export MIDI</button>
+        <button className={showKeys ? 'on' : ''} onClick={() => setShowKeys((v) => !v)} title="Play with your keyboard (`)">🎹 Keys</button>
         <button className="icon" onClick={() => setShowSettings(true)} title="Settings">⚙</button>
       </header>
 
@@ -189,15 +249,35 @@ export default function App() {
           hasApiKey={settings.hasApiKey}
           hasSong={song.tracks.length > 0}
           onSend={send}
-          onCancel={() => window.riff.cancelCompose()}
+          onCancel={() => api.cancelCompose()}
           onOpenSettings={() => setShowSettings(true)}
         />
+        <div className="main-col">
+        {showKeys && (
+          <KeyboardPanel
+            song={song}
+            target={keyTarget}
+            engine={engine.current}
+            playing={playing}
+            recording={recording}
+            busy={busy}
+            canCompose={settings.hasApiKey}
+            onToggleRecord={toggleRecord}
+            onRecordNotes={recordNotes}
+            onClear={(id) => updateTrack(id, { notes: [] })}
+            onBuildBand={buildBand}
+            onClose={() => setShowKeys(false)}
+          />
+        )}
         <main className="arrange">
           {song.tracks.length === 0 ? (
             <div className="empty">
               <h1>Start with a sentence.</h1>
-              <p>Ask the composer for a beat, a mood or a genre, or add a track and draw notes yourself.</p>
-              <button onClick={addTrack}>+ Add empty track</button>
+              <p>Ask the composer for a beat, a mood or a genre. Or play a few chords on your keyboard and let Claude build the band around them.</p>
+              <div className="empty-actions">
+                <button className="primary" onClick={() => setShowKeys(true)}>🎹 Play some chords</button>
+                <button onClick={addTrack}>+ Add empty track</button>
+              </div>
             </div>
           ) : (
             <>
@@ -220,6 +300,7 @@ export default function App() {
             </>
           )}
         </main>
+        </div>
       </div>
 
       {status && <div className="status">{status}</div>}
