@@ -2,7 +2,9 @@
 
 A desktop studio for making music with Claude. Describe a vibe ("dusty lo-fi beat at 84 bpm with jazzy keys") and Claude writes a multi-track loop. Then keep talking to reshape it ("make the drums busier", "add a counter-melody"), or edit notes by hand in the piano roll.
 
-Built with Electron, React, TypeScript, Tone.js and the Anthropic SDK.
+Or skip the typing: press **🎹 Keys** (or `` ` ``), play a few chords on your laptop's home row, and hit **Build the band around this**. Claude writes drums, bass and more to fit what you played, and never touches your part.
+
+Built with Electron, React, TypeScript, Tone.js and the Anthropic SDK. Runs as a desktop app or in the browser: **https://riff-studio-one.vercel.app** (bring your own Anthropic API key).
 
 ## Run it
 
@@ -10,11 +12,22 @@ Built with Electron, React, TypeScript, Tone.js and the Anthropic SDK.
 npm install
 npm run dev        # hot-reloading dev app
 npm run build && npm start   # production build
+npm run dev:web    # browser version
 npm test           # unit tests
 npm run typecheck
 ```
 
-Open **Settings** (⚙) and paste an Anthropic API key. It's stored encrypted with your OS keychain (`safeStorage`). The `ANTHROPIC_API_KEY` environment variable also works.
+Open **Settings** (⚙) and paste an Anthropic API key. On desktop it's stored encrypted with your OS keychain (`safeStorage`), and the `ANTHROPIC_API_KEY` environment variable also works. In the browser it's kept in that browser's localStorage and requests go straight to `api.anthropic.com`; the site has no server and never sees the key.
+
+## Play with your keyboard
+
+| Keys | Chord mode (default) | Note mode |
+|---|---|---|
+| `A S D F G H J K` | Chords I–VII in the song's key, then I up an octave | White keys C D E F G A B C… |
+| `W E T Y U O P` | | Black keys |
+| `Z` / `X` | Octave down / up | Octave down / up |
+
+`C` switches chord/note mode, `R` records (starts the loop if stopped), and notes snap to the 16th grid. On a drum track the home row plays kick, snare, clap, hat, open hat, tom and rim. Anything you record is **locked** (🔒): Claude has to return it unchanged on every edit, and the app enforces that after each reply. You can lock or unlock any track by hand.
 
 ## How it works
 
@@ -30,6 +43,7 @@ Tone.js engine plays the Song; piano roll edits it; undo/redo over every change
 - **Song model** (`src/shared/song.ts`): tracks of notes on a 16th-note grid. Instruments: drums, bass, lead, pad, pluck, keys. Drum notes use sound names (`kick`, `snare`, `hat`…).
 - **Composer** (`src/main/composer.ts`): sends the current song plus recent chat to Claude with a JSON schema for the response, so edits build on what's there. The API key never reaches the renderer.
 - **Engine** (`src/renderer/src/lib/engine.ts`): synthesized voices per instrument, swing, mute/solo, live edits while playing.
+- **Web build** (`vite.web.config.ts`, `src/renderer/src/lib/api.ts`): the same renderer with a browser implementation of the desktop API. Deployed on Vercel as a static site (`vercel.json`).
 - **Export**: Save/Open `.riff.json` projects and export a 4× looped Standard MIDI File to drop into any DAW.
 
 Try `examples/late-night-tape.riff.json` via **Open** without an API key.
