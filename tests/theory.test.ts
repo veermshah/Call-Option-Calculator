@@ -63,3 +63,33 @@ describe('keyboardChord', () => {
     expect(noteName(70, parseKey('F major'))).toBe('Bb')
   })
 })
+
+import { checkLyrics, sectionsToText, userLines } from '@shared/lyrics'
+
+describe('lyrics', () => {
+  const mine = '[Verse 1]\nStreetlights hum a song I almost know\nYour jacket still hangs by the door\n'
+  it('extracts the writer’s lines without headers', () => {
+    expect(userLines(mine)).toEqual(['Streetlights hum a song I almost know', 'Your jacket still hangs by the door'])
+  })
+  it('only trusts "mine" when the line really matches, and reports missing lines', () => {
+    const out = checkLyrics(
+      [
+        {
+          label: 'Verse 1',
+          lines: [
+            { text: 'streetlights hum a song  I almost know', mine: false },
+            { text: 'Your coat still hangs by the door', mine: true }, // altered
+            { text: 'The kettle clicks, the hallway sighs', mine: false }
+          ]
+        }
+      ],
+      mine
+    )
+    expect(out.sections[0].lines.map((l) => l.mine)).toEqual([true, false, false])
+    expect(out.sections[0].lines[0].text).toBe('Streetlights hum a song I almost know')
+    expect(out.missing).toEqual(['Your jacket still hangs by the door'])
+  })
+  it('round-trips to editor text', () => {
+    expect(sectionsToText([{ label: 'Chorus', lines: [{ text: 'Hold on', mine: false }] }])).toBe('[Chorus]\nHold on')
+  })
+})

@@ -4,6 +4,7 @@ import type { RiffApi } from '../shared/ipc'
 const api: RiffApi = {
   compose: (req) => ipcRenderer.invoke('compose', req),
   cancelCompose: () => ipcRenderer.invoke('cancel-compose'),
+  writeLyrics: (req) => ipcRenderer.invoke('write-lyrics', req),
   onComposeProgress: (cb) => {
     const listener = (_e: unknown, chars: number) => cb(chars)
     ipcRenderer.on('compose-progress', listener)

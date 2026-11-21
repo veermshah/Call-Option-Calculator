@@ -1,4 +1,5 @@
 import type { Song } from './song'
+import type { LyricsRequest, LyricsResult } from './lyrics'
 
 export interface ChatTurn {
   role: 'user' | 'assistant'
@@ -27,6 +28,7 @@ export interface Settings {
 export interface RiffApi {
   compose(req: ComposeRequest): Promise<ComposeResult>
   cancelCompose(): Promise<void>
+  writeLyrics(req: LyricsRequest): Promise<LyricsResult>
   onComposeProgress(cb: (chars: number) => void): () => void
   getSettings(): Promise<Settings>
   setApiKey(key: string): Promise<Settings>

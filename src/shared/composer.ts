@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
+import { callStructured } from './claude'
 import { DRUM_SOUNDS, INSTRUMENTS, STEPS_PER_BAR, normalizeSong, type Song, type Track } from './song'
 import type { ComposeRequest, ComposeResult } from './ipc'
 
@@ -69,6 +69,8 @@ How the studio works:
 
 Some tracks may be marked LOCKED: the musician played them by hand. Never change a locked track's notes; return it exactly as given (same name, instrument and notes) and write the other parts to fit it: match its harmony, rhythm and register, and avoid clashing with it.
 
+If the song has lyrics, let their mood guide the music. When asked for a vocal melody, write it as a "lead" track named "Vocal": one note per syllable, phrased so stressed syllables land on strong beats, in a singable range (about C4-A5), with breaths between lines. Use as many bars as the words need (up to 16), and repeat the other parts to fill the new length.
+
 When the musician asks for a change, start from the current song you're given and change only what they asked for, keeping track names stable so their mix settings survive. When they ask for something new, write it from scratch.
 
 Write music that sounds intentional: stay in key, give basslines and melodies shape and repetition with variation, vary velocity for groove, and leave space. Return the complete song every time, every note included.`
@@ -118,7 +120,8 @@ export function parseComposeOutput(text: string, previous: Song, lockedIds: stri
     }
   }
   const message = typeof obj.message === 'string' && obj.message ? obj.message : 'Done.'
-  return { ok: true, song: restoreLocked(song, previous, lockedIds), message }
+  // Lyrics aren't part of the model's answer; carry them over.
+  return { ok: true, song: { ...restoreLocked(song, previous, lockedIds), lyrics: previous.lyrics }, message }
 }
 
 export async function compose(
@@ -129,67 +132,20 @@ export async function compose(
   signal?: AbortSignal,
   opts: { browser?: boolean } = {}
 ): Promise<ComposeResult> {
-  // In the web build the visitor's own key is used straight from their browser,
-  // so it only ever goes to api.anthropic.com.
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: opts.browser === true })
-
-  const messages: Anthropic.Beta.BetaMessageParam[] = [
-    ...req.history.slice(-8).map((t) => ({ role: t.role, content: t.text })),
-    { role: 'user', content: userContent(req) }
-  ]
-  // The API needs the conversation to start with a user turn.
-  while (messages.length && messages[0].role !== 'user') messages.shift()
-
-  try {
-    const stream = client.beta.messages.stream(
-      {
-        model,
-        max_tokens: 64000,
-        system: SYSTEM_PROMPT,
-        messages,
-        thinking: { type: 'adaptive' },
-        output_config: {
-          effort: 'medium',
-          format: { type: 'json_schema', schema: SONG_RESPONSE_SCHEMA as unknown as Record<string, unknown> }
-        },
-        // On a safety decline, let the API re-run on a fallback model in the same call.
-        betas: ['server-side-fallback-2026-07-01'],
-        fallbacks: 'default'
-      },
-      { signal }
-    )
-
-    let chars = 0
-    stream.on('text', (delta) => {
-      chars += delta.length
-      onProgress(chars)
-    })
-
-    const final = await stream.finalMessage()
-    if (final.stop_reason === 'refusal') {
-      return { ok: false, error: 'Claude declined this request. Try rephrasing it.' }
-    }
-    if (final.stop_reason === 'max_tokens') {
-      return { ok: false, error: 'The song was too long to finish. Ask for fewer bars or tracks.' }
-    }
-    const text = final.content
-      .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
-    return parseComposeOutput(text, req.song, req.lockedTrackIds ?? [])
-  } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) {
-      return { ok: false, error: 'Your API key was rejected. Check it in Settings.' }
-    }
-    if (err instanceof Anthropic.RateLimitError) {
-      return { ok: false, error: 'Rate limited by the API. Wait a moment and try again.' }
-    }
-    if (err instanceof Anthropic.APIUserAbortError) {
-      return { ok: false, error: 'Cancelled.' }
-    }
-    if (err instanceof Anthropic.APIError) {
-      return { ok: false, error: `API error ${err.status ?? ''}: ${err.message}` }
-    }
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
-  }
+  const res = await callStructured({
+    apiKey,
+    model,
+    system: SYSTEM_PROMPT,
+    messages: [
+      ...req.history.slice(-8).map((t) => ({ role: t.role, content: t.text })),
+      { role: 'user' as const, content: userContent(req) }
+    ],
+    schema: SONG_RESPONSE_SCHEMA as unknown as Record<string, unknown>,
+    onProgress,
+    signal,
+    browser: opts.browser,
+    tooLongMessage: 'The song was too long to finish. Ask for fewer bars or tracks.'
+  })
+  if (!res.ok) return res
+  return parseComposeOutput(res.text, req.song, req.lockedTrackIds ?? [])
 }

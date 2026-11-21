@@ -39,11 +39,13 @@ export interface Song {
   bars: number
   /** 0..0.5 — delays every other 16th for groove. */
   swing: number
+  /** Lyrics text with optional [Section] headers. */
+  lyrics: string
   tracks: Track[]
 }
 
 export function emptySong(): Song {
-  return { title: 'Untitled', bpm: 100, key: 'C minor', bars: 2, swing: 0, tracks: [] }
+  return { title: 'Untitled', bpm: 100, key: 'C minor', bars: 2, swing: 0, lyrics: '', tracks: [] }
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +132,7 @@ export function normalizeSong(raw: unknown): Song {
     key: typeof r.key === 'string' && r.key ? r.key.slice(0, 24) : 'C minor',
     bars,
     swing: clamp(num(r.swing, 0), 0, 0.5),
+    lyrics: typeof r.lyrics === 'string' ? r.lyrics.slice(0, 20000) : '',
     tracks
   }
 }

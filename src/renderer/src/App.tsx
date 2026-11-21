@@ -8,6 +8,7 @@ import { ChatPanel } from './components/ChatPanel'
 import { TrackRow } from './components/TrackRow'
 import { SettingsModal } from './components/SettingsModal'
 import { KeyboardPanel } from './components/KeyboardPanel'
+import { LyricsPanel } from './components/LyricsPanel'
 import { api } from './lib/api'
 
 type Turn = ChatTurn & { error?: boolean }
@@ -26,6 +27,7 @@ export default function App() {
   const [solo, setSolo] = useState<string | null>(null)
   const [status, setStatus] = useState('')
   const [showKeys, setShowKeys] = useState(false)
+  const [tab, setTab] = useState<'arrange' | 'lyrics'>('arrange')
   const [recording, setRecording] = useState(false)
   const engine = useRef<Engine | null>(null)
 
@@ -157,6 +159,14 @@ export default function App() {
     )
   }
 
+  const singIt = () => {
+    setTab('arrange')
+    const hasVocal = song.tracks.some((t) => t.name.toLowerCase() === 'vocal')
+    send(
+      `${hasVocal ? 'Rewrite' : 'Add'} a "Vocal" track: a singable melody for the chorus of my lyrics (or the first section if there's no chorus), one note per syllable. Keep the other parts as they are, just repeat them if the loop needs to get longer.`
+    )
+  }
+
   const send = async (prompt: string) => {
     const priorTurns = turns.filter((t) => !t.error)
     setTurns((t) => [...t, { role: 'user', text: prompt }])
@@ -253,6 +263,23 @@ export default function App() {
           onOpenSettings={() => setShowSettings(true)}
         />
         <div className="main-col">
+        <nav className="tabs">
+          <button className={tab === 'arrange' ? 'on' : ''} onClick={() => setTab('arrange')}>Arrange</button>
+          <button className={tab === 'lyrics' ? 'on' : ''} onClick={() => setTab('lyrics')}>
+            Lyrics{song.lyrics.trim() ? ' •' : ''}
+          </button>
+        </nav>
+        {tab === 'lyrics' ? (
+          <LyricsPanel
+            song={song}
+            canCompose={settings.hasApiKey}
+            composing={busy}
+            onType={(lyrics) => history.replace({ ...song, lyrics })}
+            onAccept={(lyrics) => history.set({ ...song, lyrics })}
+            onSingIt={singIt}
+            onOpenSettings={() => setShowSettings(true)}
+          />
+        ) : (<>
         {showKeys && (
           <KeyboardPanel
             song={song}
@@ -300,6 +327,7 @@ export default function App() {
             </>
           )}
         </main>
+        </>)}
         </div>
       </div>
 

@@ -19,6 +19,12 @@ npm run typecheck
 
 Open **Settings** (⚙) and paste an Anthropic API key. On desktop it's stored encrypted with your OS keychain (`safeStorage`), and the `ANTHROPIC_API_KEY` environment variable also works. In the browser it's kept in that browser's localStorage and requests go straight to `api.anthropic.com`; the site has no server and never sees the key.
 
+## Write lyrics with Claude
+
+Open the **Lyrics** tab, write a line or a verse, then choose **Finish this verse**, **Write a chorus**, **Next section** or **Complete the song** (or ask for something specific). Claude matches your voice, rhyme scheme and syllable counts. Its draft shows up next to yours with the new lines highlighted, and nothing changes until you click **Use these lyrics**.
+
+With **Keep my lines exactly** on (the default), your lines must come back word for word. The app checks this: it restores your exact spelling and warns you if any of your lines are missing. **🎤 Write a vocal melody** asks the composer for a `Vocal` track that sets your chorus to notes, one per syllable. Lyrics are saved with the project, and the composer reads them for mood.
+
 ## Play with your keyboard
 
 | Keys | Chord mode (default) | Note mode |
@@ -41,7 +47,8 @@ Tone.js engine plays the Song; piano roll edits it; undo/redo over every change
 ```
 
 - **Song model** (`src/shared/song.ts`): tracks of notes on a 16th-note grid. Instruments: drums, bass, lead, pad, pluck, keys. Drum notes use sound names (`kick`, `snare`, `hat`…).
-- **Composer** (`src/main/composer.ts`): sends the current song plus recent chat to Claude with a JSON schema for the response, so edits build on what's there. The API key never reaches the renderer.
+- **Lyricist** (`src/shared/lyrics.ts`): returns lyrics line by line with a `mine` flag per line, then checks those flags against your original text.
+- **Composer** (`src/shared/composer.ts`): sends the current song plus recent chat to Claude with a JSON schema for the response, so edits build on what's there. The API key never reaches the renderer.
 - **Engine** (`src/renderer/src/lib/engine.ts`): synthesized voices per instrument, swing, mute/solo, live edits while playing.
 - **Web build** (`vite.web.config.ts`, `src/renderer/src/lib/api.ts`): the same renderer with a browser implementation of the desktop API. Deployed on Vercel as a static site (`vercel.json`).
 - **Export**: Save/Open `.riff.json` projects and export a 4× looped Standard MIDI File to drop into any DAW.
