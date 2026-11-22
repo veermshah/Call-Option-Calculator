@@ -104,7 +104,13 @@ function makeVoice(track: Track, master: Tone.ToneAudioNode, reverb: Tone.ToneAu
     trigger: (note, time, stepSeconds) => {
       synth.triggerAttackRelease(note.pitch, Math.max(0.03, note.length * stepSeconds * 0.95), time, note.velocity)
     },
-    attack: (pitch, velocity) => synth.triggerAttack(pitch, Tone.now() + 0.005, velocity),
+    attack: (pitch, velocity) => {
+      try {
+        synth.triggerAttack(pitch, Tone.now() + 0.005, velocity)
+      } catch (err) {
+        console.warn('note skipped', pitch, err)
+      }
+    },
     release: (pitch) => {
       if (synth instanceof Tone.MonoSynth) synth.triggerRelease(Tone.now() + 0.005)
       else synth.triggerRelease(pitch, Tone.now() + 0.005)
@@ -198,12 +204,20 @@ export class Engine {
     return ((steps % total) + total) % total
   }
 
+  private held = new Set<string>()
+
   async noteOn(trackId: string, pitch: string, velocity = 0.8) {
-    await Tone.start()
+    const k = `${trackId}|${pitch}`
+    this.held.add(k)
+    // The browser keeps audio suspended until the first key or click; wait for
+    // it, and skip the note if the key was already let go in the meantime.
+    if (Tone.getContext().state !== 'running') await Tone.start()
+    if (!this.held.has(k)) return
     this.voices.get(trackId)?.voice.attack(pitch, velocity)
   }
 
   noteOff(trackId: string, pitch: string) {
+    if (!this.held.delete(`${trackId}|${pitch}`)) return
     this.voices.get(trackId)?.voice.release(pitch)
   }
 

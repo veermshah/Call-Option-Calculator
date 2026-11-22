@@ -1,9 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { DRUM_SOUNDS, midiToPitch, STEPS_PER_BAR, type Note, type Song, type Track } from '@shared/song'
-import { CHORD_KEYS, KEY_LABEL, keyboardChord, noteName, parseKey, PIANO_KEYS, romanFor } from '@shared/theory'
+import { CHORD_KEYS, diatonicChord, KEY_LABEL, keyboardChord, noteName, parseKey, PIANO_KEYS, romanFor } from '@shared/theory'
 import type { Engine } from '../lib/engine'
 
 export type KeyMode = 'notes' | 'chords'
+
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'number', 'password', 'email', 'url', 'tel'])
+
+/** True only where letters should type text. Sliders, buttons, checkboxes and dropdowns don't count. */
+export function isTextEntry(el: Element | null): boolean {
+  if (!el) return false
+  const h = el as HTMLElement
+  if (h.isContentEditable || el.tagName === 'TEXTAREA') return true
+  return el.tagName === 'INPUT' && TEXT_INPUT_TYPES.has((el as HTMLInputElement).type)
+}
 
 interface Props {
   song: Song
@@ -34,11 +44,15 @@ interface Held {
  * notes are quantised to the 16th grid of the loop and written to the target
  * track.
  */
+const diatonicRoot = (scale: ReturnType<typeof parseKey>, degree: number, baseMidi: number) =>
+  diatonicChord(scale, degree % 7, baseMidi)[0]
+
 export function KeyboardPanel(props: Props) {
   const { song, target, playing, recording, busy, canCompose } = props
   const [mode, setMode] = useState<KeyMode>('chords')
   const [octave, setOctave] = useState(4)
   const [held, setHeld] = useState<Record<string, Held>>({})
+  const [typing, setTyping] = useState(() => isTextEntry(document.activeElement))
   const heldRef = useRef<Record<string, Held>>({})
   const latest = useRef(props)
   latest.current = props
@@ -58,7 +72,13 @@ export function KeyboardPanel(props: Props) {
     if (mode === 'chords') {
       const degree = CHORD_KEYS[code]
       if (degree === undefined) return null
-      return keyboardChord(parseKey(latest.current.song.key), degree, (octave + 1) * 12)
+      const chord = keyboardChord(parseKey(latest.current.song.key), degree, (octave + 1) * 12)
+      // Bass is one note at a time: play the chord's root an octave down.
+      if (t?.instrument === 'bass') {
+        const root = diatonicRoot(parseKey(latest.current.song.key), degree, octave * 12)
+        return [root]
+      }
+      return chord
     }
     const semis = PIANO_KEYS[code]
     if (semis === undefined) return null
@@ -66,10 +86,10 @@ export function KeyboardPanel(props: Props) {
   }
 
   useEffect(() => {
-    const isTyping = (e: KeyboardEvent) => !!(e.target as HTMLElement).closest('input, textarea, select')
-
     const down = (e: KeyboardEvent) => {
-      if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return
+      if (isTextEntry(e.target as Element) || e.metaKey || e.ctrlKey || e.altKey) return
+      // A focused dropdown would otherwise jump to the option starting with that letter.
+      if ((e.target as Element).tagName === 'SELECT') (e.target as HTMLElement).blur()
       const p = latest.current
       if (e.code === 'KeyZ') return setOctave((o) => Math.max(1, o - 1))
       if (e.code === 'KeyX') return setOctave((o) => Math.min(7, o + 1))
@@ -119,10 +139,18 @@ export function KeyboardPanel(props: Props) {
       setHeld({})
     }
 
+    const focusChange = () => setTyping(isTextEntry(document.activeElement))
+    // On focusout, activeElement is only updated after the event.
+    const focusOut = () => setTimeout(focusChange)
+
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
     window.addEventListener('blur', blur)
+    document.addEventListener('focusin', focusChange)
+    document.addEventListener('focusout', focusOut)
     return () => {
+      document.removeEventListener('focusin', focusChange)
+      document.removeEventListener('focusout', focusOut)
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', blur)
@@ -208,6 +236,11 @@ export function KeyboardPanel(props: Props) {
           })}
         </div>
       </div>
+      {typing && (
+        <div className="kbd-typing">
+          ⌨ You're typing in a text box, so keys go there. Click an empty spot (or press Esc) to play.
+        </div>
+      )}
       <div className="kbd-help">
         {drums
           ? 'Home row plays drums. '

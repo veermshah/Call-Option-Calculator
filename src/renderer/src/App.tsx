@@ -74,7 +74,9 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement).closest('input, textarea, select')
-      if (e.code === 'Backquote' && !typing) {
+      if (e.key === 'Escape' && typing) {
+        ;(e.target as HTMLElement).blur()
+      } else if (e.code === 'Backquote' && !typing) {
         e.preventDefault()
         setShowKeys((v) => !v)
       } else if (e.code === 'Space' && !typing) {
@@ -113,18 +115,27 @@ export default function App() {
     if (solo === id) setSolo(null)
   }
 
-  // When the keyboard opens with nothing to play into, make a track for it.
+  // While the keyboard is open it always needs a track to play into: keep the
+  // last one if the selection is cleared, otherwise make one.
+  const lastKeyTarget = useRef<string | null>(null)
   useEffect(() => {
     if (!showKeys) {
       setRecording(false)
       return
     }
-    if (selected && song.tracks.some((t) => t.id === selected)) return
+    if (selected && song.tracks.some((t) => t.id === selected)) {
+      lastKeyTarget.current = selected
+      return
+    }
+    if (lastKeyTarget.current && song.tracks.some((t) => t.id === lastKeyTarget.current)) {
+      setSelected(lastKeyTarget.current)
+      return
+    }
     const t: Track = { id: newId(), name: 'My Part', instrument: 'keys', volume: 0.8, muted: false, locked: true, notes: [] }
     history.set({ ...song, tracks: [t, ...song.tracks] })
     setSelected(t.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showKeys])
+  }, [showKeys, selected])
 
   const keyTarget = song.tracks.find((t) => t.id === selected) ?? null
 
