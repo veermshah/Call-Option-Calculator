@@ -47,7 +47,16 @@ export default function App() {
     const e = new Engine()
     e.onStep = setPlayStep
     engine.current = e
-    return () => e.dispose()
+    // Start audio on the first click or key press anywhere, so it is already
+    // running by the time the first note is played.
+    const unlock = () => e.unlock()
+    window.addEventListener('pointerdown', unlock, true)
+    window.addEventListener('keydown', unlock, true)
+    return () => {
+      window.removeEventListener('pointerdown', unlock, true)
+      window.removeEventListener('keydown', unlock, true)
+      e.dispose()
+    }
   }, [])
 
   useEffect(() => {

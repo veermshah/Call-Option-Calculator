@@ -17,6 +17,8 @@ const keyOf = (trackId: string, pitch: string) => `${trackId}|${pitch}`
 export class LiveNotes {
   private holders = new Map<string, number>()
   private sounding = new Map<string, { trackId: string; pitch: string }>()
+  /** Quick taps that ended before audio was ready: still played, briefly. */
+  private tapped = new Set<string>()
 
   constructor(private sink: LiveSink) {}
 
@@ -26,10 +28,21 @@ export class LiveNotes {
     this.holders.set(k, (this.holders.get(k) ?? 0) + 1)
   }
 
-  /** Make the pitch sound if a key still holds it and it isn't sounding yet. */
+  /**
+   * Make the pitch sound if a key still holds it and it isn't sounding yet. A
+   * tap that was already let go (audio took a moment to start) still plays,
+   * as a short note, instead of being silently dropped.
+   */
   start(trackId: string, pitch: string, velocity: number) {
     const k = keyOf(trackId, pitch)
-    if (!this.holders.get(k) || this.sounding.has(k)) return
+    if (this.sounding.has(k)) return
+    if (!this.holders.get(k)) {
+      if (!this.tapped.delete(k)) return
+      this.sink.attack(trackId, pitch, velocity)
+      this.sink.release(trackId, pitch)
+      return
+    }
+    this.tapped.delete(k)
     this.sounding.set(k, { trackId, pitch })
     this.sink.attack(trackId, pitch, velocity)
   }
@@ -45,6 +58,7 @@ export class LiveNotes {
     }
     this.holders.delete(k)
     if (this.sounding.delete(k)) this.sink.release(trackId, pitch)
+    else this.tapped.add(k)
   }
 
   /** Forget a track's notes without releasing them (its synth was disposed). */
@@ -52,6 +66,7 @@ export class LiveNotes {
     const prefix = `${trackId}|`
     for (const k of [...this.holders.keys()]) if (k.startsWith(prefix)) this.holders.delete(k)
     for (const k of [...this.sounding.keys()]) if (k.startsWith(prefix)) this.sounding.delete(k)
+    for (const k of [...this.tapped]) if (k.startsWith(prefix)) this.tapped.delete(k)
   }
 
   /** Stop everything that is sounding and clear all holders. */
@@ -59,6 +74,7 @@ export class LiveNotes {
     const all = [...this.sounding.values()]
     this.holders.clear()
     this.sounding.clear()
+    this.tapped.clear()
     for (const { trackId, pitch } of all) this.sink.release(trackId, pitch)
   }
 
