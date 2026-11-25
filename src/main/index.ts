@@ -188,6 +188,17 @@ ipcMain.handle('export-midi', async (e, bytes: Uint8Array, suggestedName: string
   return res.filePath
 })
 
+ipcMain.handle('export-audio', async (e, bytes: Uint8Array, suggestedName: string) => {
+  const win = BrowserWindow.fromWebContents(e.sender)
+  const res = await dialog.showSaveDialog(win!, {
+    defaultPath: `${safeName(suggestedName)}.wav`,
+    filters: [{ name: 'WAV audio', extensions: ['wav'] }]
+  })
+  if (res.canceled || !res.filePath) return null
+  await writeFile(res.filePath, Buffer.from(bytes))
+  return res.filePath
+})
+
 app.whenReady().then(() => {
   createWindow()
   app.on('activate', () => {

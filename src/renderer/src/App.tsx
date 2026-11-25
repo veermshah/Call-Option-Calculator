@@ -2,25 +2,36 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { emptySong, newId, normalizeSong, type Note, type Song, type Track } from '@shared/song'
 import { songToMidi } from '@shared/midi'
 import type { ChatTurn, Settings } from '@shared/ipc'
-import { Engine } from './lib/engine'
+import { Engine, renderSong } from './lib/engine'
 import { useHistory } from './lib/useHistory'
+import { loadAutosave, writeAutosave } from './lib/autosave'
+import { demoSong } from './lib/demo'
+import { encodeWav } from './lib/wav'
 import { ChatPanel } from './components/ChatPanel'
 import { TrackRow } from './components/TrackRow'
 import { SettingsModal } from './components/SettingsModal'
 import { KeyboardPanel } from './components/KeyboardPanel'
 import { LyricsPanel } from './components/LyricsPanel'
+import { StartScreen } from './components/StartScreen'
+import { SongSettings } from './components/SongSettings'
+import { Popover } from './components/Popover'
 import { api } from './lib/api'
 
 type Turn = ChatTurn & { error?: boolean }
 
 export default function App() {
-  const history = useHistory<Song>(emptySong())
+  const [restored] = useState(loadAutosave)
+  const history = useHistory<Song>(restored?.song ?? emptySong())
   const song = history.present
-  const [turns, setTurns] = useState<Turn[]>([])
+  const [turns, setTurns] = useState<Turn[]>(restored?.turns ?? [])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState(0)
   const [settings, setSettings] = useState<Settings>({ hasApiKey: true, model: '' })
-  const [showSettings, setShowSettings] = useState(false)
+  // 'setup' is the first-run key step, opened when you try to create without a key.
+  const [showSettings, setShowSettings] = useState<false | 'settings' | 'setup'>(false)
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [savedAt, setSavedAt] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
   const [playStep, setPlayStep] = useState(-1)
   const [selected, setSelected] = useState<string | null>(null)
@@ -51,6 +62,14 @@ export default function App() {
     api.getSettings().then(setSettings)
     return api.onComposeProgress(setProgress)
   }, [])
+
+  // Autosave: the song and the conversation survive a refresh or restart.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (writeAutosave({ song, turns: turns.filter((t) => !t.error).map(({ role, text }) => ({ role, text })) })) setSavedAt(Date.now())
+    }, 400)
+    return () => window.clearTimeout(id)
+  }, [song, turns])
 
   const flash = (msg: string) => {
     setStatus(msg)
@@ -178,7 +197,14 @@ export default function App() {
     )
   }
 
-  const send = async (prompt: string) => {
+  const send = async (prompt: string, keyJustAdded = false) => {
+    if (!settings.hasApiKey && !keyJustAdded) {
+      // Ask for the key at the moment it's needed, then carry on with this prompt.
+      setPendingPrompt(prompt)
+      setShowSettings('setup')
+      return
+    }
+    setTab('arrange')
     const priorTurns = turns.filter((t) => !t.error)
     setTurns((t) => [...t, { role: 'user', text: prompt }])
     setBusy(true)
@@ -222,44 +248,89 @@ export default function App() {
     if (path) flash(`Exported ${path}`)
   }
 
+  const exportAudio = async () => {
+    if (exporting) return
+    setExporting(true)
+    flash('Rendering audio…')
+    try {
+      const { channels, sampleRate } = await renderSong(song, 4)
+      const path = await api.exportAudio(encodeWav(channels, sampleRate), song.title)
+      if (path) flash(`Exported ${path}`)
+    } catch (err) {
+      console.error(err)
+      flash('Could not render audio. Try Download MIDI instead.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const startPlaying = async () => {
+    if (!engine.current?.playing) {
+      await engine.current?.play()
+      setPlaying(true)
+    }
+  }
+
+  const loadDemo = async () => {
+    const s = demoSong()
+    history.set(s)
+    setTurns([])
+    setSelected(s.tracks[0]?.id ?? null)
+    setTab('arrange')
+    engine.current?.setSong(s)
+    await startPlaying()
+  }
+
+  const newSong = () => {
+    engine.current?.stop()
+    setPlaying(false)
+    setRecording(false)
+    setShowKeys(false)
+    history.set(emptySong())
+    setTurns([])
+    setSelected(null)
+    setSolo(null)
+    setTab('arrange')
+    flash('New song. Undo (Ctrl+Z) brings the last one back.')
+  }
+
   const preview = (trackId: string, note: Note) => engine.current?.preview(trackId, note)
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">Riff</div>
-        <button className={`play${playing ? ' on' : ''}`} onClick={togglePlay} title="Play / stop (Space)">
+        <button className={`play${playing ? ' on' : ''}`} onClick={togglePlay} title="Play / stop (Space)" disabled={!song.tracks.length && !showKeys}>
           {playing ? '■' : '▶'}
         </button>
-        <input className="title" value={song.title} onChange={(e) => updateSong({ title: e.target.value }, false)} />
-        <label className="field">
-          BPM
-          <input type="number" min={40} max={220} value={song.bpm} onChange={(e) => updateSong({ bpm: +e.target.value })} />
-        </label>
-        <label className="field">
-          Key
-          <input className="key" value={song.key} onChange={(e) => updateSong({ key: e.target.value }, false)} />
-        </label>
-        <label className="field">
-          Bars
-          <select value={song.bars} onChange={(e) => updateSong({ bars: +e.target.value })}>
-            {[1, 2, 4, 8, 16].map((b) => (
-              <option key={b} value={b}>{b}</option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          Swing
-          <input type="range" min={0} max={0.5} step={0.01} value={song.swing} onChange={(e) => updateSong({ swing: +e.target.value }, false)} />
-        </label>
+        <input className="title" value={song.title} onChange={(e) => updateSong({ title: e.target.value }, false)} aria-label="Song title" />
+        {song.tracks.length > 0 && savedAt && <span className="saved" title="Your song is saved in this browser automatically">✓ Saved</span>}
+        <SongSettings song={song} onChange={updateSong} />
         <span className="spacer" />
         <button onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z)">↶</button>
         <button onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z)">↷</button>
-        <button onClick={open}>Open</button>
-        <button onClick={save}>Save</button>
-        <button onClick={exportMidi} disabled={!song.tracks.length}>Export MIDI</button>
         <button className={showKeys ? 'on' : ''} onClick={() => setShowKeys((v) => !v)} title="Play with your keyboard (`)">🎹 Keys</button>
-        <button className="icon" onClick={() => setShowSettings(true)} title="Settings">⚙</button>
+        <button onClick={newSong} disabled={!song.tracks.length && !turns.length} title="Start a new song">+ New</button>
+        <Popover className="primary" label={exporting ? 'Rendering…' : 'Export ▾'} align="right" title="Download or save your song">
+          {(close) => (
+            <div className="menu">
+              <button disabled={!song.tracks.length || exporting} onClick={() => { close(); exportAudio() }}>
+                <strong>Download audio</strong><span>WAV, 4 loops, ready to share</span>
+              </button>
+              <button disabled={!song.tracks.length} onClick={() => { close(); exportMidi() }}>
+                <strong>Download MIDI</strong><span>Open the notes in GarageBand, Ableton, FL…</span>
+              </button>
+              <button disabled={!song.tracks.length} onClick={() => { close(); save() }}>
+                <strong>Save project file</strong><span>Keep a copy you can reopen in Riff</span>
+              </button>
+              <hr />
+              <button onClick={() => { close(); open() }}>
+                <strong>Open project file…</strong>
+              </button>
+            </div>
+          )}
+        </Popover>
+        <button className="icon" onClick={() => setShowSettings('settings')} title="Settings">⚙</button>
       </header>
 
       <div className="body">
@@ -267,11 +338,9 @@ export default function App() {
           turns={turns}
           busy={busy}
           progress={progress}
-          hasApiKey={settings.hasApiKey}
           hasSong={song.tracks.length > 0}
-          onSend={send}
+          onSend={(p) => send(p)}
           onCancel={() => api.cancelCompose()}
-          onOpenSettings={() => setShowSettings(true)}
         />
         <div className="main-col">
         <nav className="tabs">
@@ -288,7 +357,7 @@ export default function App() {
             onType={(lyrics) => history.replace({ ...song, lyrics })}
             onAccept={(lyrics) => history.set({ ...song, lyrics })}
             onSingIt={singIt}
-            onOpenSettings={() => setShowSettings(true)}
+            onOpenSettings={() => setShowSettings('settings')}
           />
         ) : (<>
         {showKeys && (
@@ -299,7 +368,7 @@ export default function App() {
             playing={playing}
             recording={recording}
             busy={busy}
-            canCompose={settings.hasApiKey}
+            canCompose
             onToggleRecord={toggleRecord}
             onRecordNotes={recordNotes}
             onClear={(id) => updateTrack(id, { notes: [] })}
@@ -309,14 +378,17 @@ export default function App() {
         )}
         <main className="arrange">
           {song.tracks.length === 0 ? (
-            <div className="empty">
-              <h1>Start with a sentence.</h1>
-              <p>Ask the composer for a beat, a mood or a genre. Or play a few chords on your keyboard and let Claude build the band around them.</p>
-              <div className="empty-actions">
-                <button className="primary" onClick={() => setShowKeys(true)}>🎹 Play some chords</button>
-                <button onClick={addTrack}>+ Add empty track</button>
-              </div>
-            </div>
+            <StartScreen
+              busy={busy}
+              progress={progress}
+              error={turns.at(-1)?.error ? turns.at(-1)!.text : null}
+              onCreate={(p) => send(p)}
+              onCancel={() => api.cancelCompose()}
+              onPlayKeys={() => setShowKeys(true)}
+              onDemo={loadDemo}
+              onBlank={addTrack}
+              onOpen={open}
+            />
           ) : (
             <>
               {song.tracks.map((t) => (
@@ -346,10 +418,17 @@ export default function App() {
       {showSettings && (
         <SettingsModal
           settings={settings}
-          onClose={() => setShowSettings(false)}
+          setup={showSettings === 'setup'}
+          onClose={() => {
+            setShowSettings(false)
+            setPendingPrompt(null)
+          }}
           onSaved={(s) => {
             setSettings(s)
             setShowSettings(false)
+            const p = pendingPrompt
+            setPendingPrompt(null)
+            if (p && s.hasApiKey) send(p, true)
           }}
         />
       )}

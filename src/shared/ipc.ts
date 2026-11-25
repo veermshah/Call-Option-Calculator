@@ -36,4 +36,5 @@ export interface RiffApi {
   saveProject(song: Song): Promise<string | null>
   openProject(): Promise<Song | null>
   exportMidi(bytes: Uint8Array, suggestedName: string): Promise<string | null>
+  exportAudio(bytes: Uint8Array, suggestedName: string): Promise<string | null>
 }

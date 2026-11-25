@@ -233,3 +233,60 @@ input[type='range'] { accent-color: var(--accent); padding: 0; border: none; bac
 .sw.new { background: rgba(124, 108, 255, 0.5); }
 .sw.mine { background: var(--text); margin-left: 6px; }
 .kbd-typing { background: #2a2540; border: 1px solid #4a3f86; color: #d9d3ff; border-radius: 7px; padding: 6px 10px; font-size: 12px; }
+
+/* Start screen: one obvious first step (prompt), three other ways in */
+.start { margin: auto; width: 100%; max-width: 640px; padding: 24px 8px; display: flex; flex-direction: column; align-items: stretch; gap: 14px; text-align: center; }
+.start h1 { margin: 0; font-size: 26px; letter-spacing: -0.01em; }
+.start-sub { margin: -4px 0 4px; color: var(--muted); font-size: 14px; }
+.start-prompt { display: flex; flex-direction: column; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; text-align: left; }
+.start-prompt:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 108, 255, 0.15); }
+.start-prompt textarea { resize: none; border: none; background: transparent; font-size: 16px; line-height: 1.5; padding: 4px 6px; user-select: text; }
+.start-row { display: flex; align-items: center; gap: 10px; }
+.styles { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.chip.on { color: #fff; border-color: var(--accent); background: rgba(124, 108, 255, 0.18); }
+button.create { padding: 9px 16px; font-weight: 600; border-radius: 9px; white-space: nowrap; }
+.start-error { margin: 0; color: #ffb4b6; font-size: 13px; }
+.or { display: flex; align-items: center; gap: 10px; color: #5d6577; font-size: 12px; margin: 6px 0 0; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.start-paths { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.path { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; border-radius: 12px; text-align: left; background: var(--panel); }
+.path:hover:not(:disabled) { border-color: var(--accent); }
+.path strong { font-size: 14px; }
+.path span { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.path .path-icon { font-size: 18px; color: var(--accent-2); }
+.start-open { align-self: center; color: var(--muted); font-size: 12px; padding: 0; }
+.start-open:hover { color: var(--text); }
+.start-busy { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--muted); }
+.start-busy h1 { color: var(--text); }
+.start-busy p { margin: 0; max-width: 420px; }
+.spinner.big { width: 28px; height: 28px; border-width: 3px; }
+@media (max-width: 900px) { .start-paths { grid-template-columns: 1fr; } .start-row { flex-direction: column; align-items: stretch; } }
+
+/* Top bar readouts and menus */
+.saved { color: #6b7387; font-size: 11.5px; margin-left: -6px; }
+.popover { position: relative; }
+.popover-panel { position: absolute; top: calc(100% + 6px); z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); padding: 6px; min-width: 240px; }
+.popover-panel.left { left: 0; }
+.popover-panel.right { right: 0; }
+button.lcd { font-variant-numeric: tabular-nums; background: #0b0d11; color: var(--muted); font-size: 12px; padding: 5px 12px; border-radius: 8px; }
+button.lcd b { color: #cfe6ff; font-weight: 600; }
+button.lcd i { font-style: normal; color: #4a5263; margin: 0 2px; }
+button.lcd.on { border-color: var(--accent); }
+.song-settings { display: flex; flex-direction: column; gap: 14px; padding: 10px; width: 280px; }
+.ss-field { display: flex; flex-direction: column; gap: 6px; }
+.ss-label { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+.ss-label em { font-style: normal; color: var(--text); }
+.ss-field small { color: #6b7387; font-size: 11px; }
+.stepper { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.stepper input { width: 70px; text-align: center; }
+.stepper button { width: 30px; padding: 4px 0; }
+.seg { display: flex; gap: 2px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 2px; }
+.seg button { flex: 1; border: none; background: transparent; padding: 4px 0; color: var(--muted); }
+.seg button.on { background: var(--accent); color: #fff; }
+.menu { display: flex; flex-direction: column; min-width: 270px; }
+.menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; border: none; background: transparent; text-align: left; padding: 8px 10px; border-radius: 7px; }
+.menu button:hover:not(:disabled) { background: var(--panel-2); }
+.menu button span { color: var(--muted); font-size: 11.5px; }
+.menu hr { border: none; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
+.modal-intro { margin: -6px 0 0; color: var(--muted); line-height: 1.5; }
+.modal-intro a { color: var(--accent-2); }

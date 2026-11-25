@@ -5,19 +5,10 @@ interface Props {
   turns: (ChatTurn & { error?: boolean })[]
   busy: boolean
   progress: number
-  hasApiKey: boolean
   hasSong: boolean
   onSend: (prompt: string) => void
   onCancel: () => void
-  onOpenSettings: () => void
 }
-
-const STARTERS = [
-  'A dusty lo-fi hip hop beat at 84 bpm with jazzy keys',
-  'Driving techno loop, 128 bpm, rolling bassline',
-  'Dreamy synthwave, 4 bars, big pads and an arpeggio',
-  'Bouncy house groove with offbeat hats and a piano stab'
-]
 
 const TWEAKS = [
   'Make the drums busier',
@@ -26,7 +17,7 @@ const TWEAKS = [
   'Double the length with a variation'
 ]
 
-export function ChatPanel({ turns, busy, progress, hasApiKey, hasSong, onSend, onCancel, onOpenSettings }: Props) {
+export function ChatPanel({ turns, busy, progress, hasSong, onSend, onCancel }: Props) {
   const [text, setText] = useState('')
   const end = useRef<HTMLDivElement>(null)
 
@@ -41,7 +32,8 @@ export function ChatPanel({ turns, busy, progress, hasApiKey, hasSong, onSend, o
     setText('')
   }
 
-  const suggestions = hasSong ? TWEAKS : STARTERS
+  // Before there's a song, the big prompt in the middle is the one place to start.
+  const showInput = hasSong || turns.length > 0
 
   return (
     <aside className="chat">
@@ -51,7 +43,11 @@ export function ChatPanel({ turns, busy, progress, hasApiKey, hasSong, onSend, o
       <div className="chat-log">
         {turns.length === 0 && (
           <div className="chat-empty">
-            <p>Describe a vibe and Claude writes the loop. Then keep talking to reshape it, or edit notes by hand.</p>
+            {hasSong ? (
+              <p>Tell Claude what to change, or tap an idea below. You can also edit notes by hand on the right.</p>
+            ) : (
+              <p>Start your song in the middle. Then keep talking here to reshape it: “busier drums”, “add a counter-melody”, “make it darker”.</p>
+            )}
           </div>
         )}
         {turns.map((t, i) => (
@@ -68,15 +64,10 @@ export function ChatPanel({ turns, busy, progress, hasApiKey, hasSong, onSend, o
         <div ref={end} />
       </div>
 
-      {!hasApiKey ? (
-        <div className="chat-key">
-          <p>Add your Anthropic API key to start composing.</p>
-          <button className="primary" onClick={onOpenSettings}>Open settings</button>
-        </div>
-      ) : (
+      {showInput && (
         <>
           <div className="chips">
-            {suggestions.map((s) => (
+            {TWEAKS.map((s) => (
               <button key={s} className="chip" disabled={busy} onClick={() => send(s)}>
                 {s}
               </button>
@@ -91,7 +82,7 @@ export function ChatPanel({ turns, busy, progress, hasApiKey, hasSong, onSend, o
           >
             <textarea
               value={text}
-              placeholder={hasSong ? 'Tell Claude what to change…' : 'Describe the music you want…'}
+              placeholder="Tell Claude what to change…"
               rows={3}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
