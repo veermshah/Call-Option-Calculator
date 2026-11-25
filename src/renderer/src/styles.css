@@ -271,7 +271,7 @@ button.create { padding: 9px 16px; font-weight: 600; border-radius: 9px; white-s
 button.lcd { font-variant-numeric: tabular-nums; background: #0b0d11; color: var(--muted); font-size: 12px; padding: 5px 12px; border-radius: 8px; }
 button.lcd b { color: #cfe6ff; font-weight: 600; }
 button.lcd i { font-style: normal; color: #4a5263; margin: 0 2px; }
-button.lcd.on { border-color: var(--accent); }
+button.lcd.on { background: #0b0d11; border-color: var(--accent); color: var(--muted); }
 .song-settings { display: flex; flex-direction: column; gap: 14px; padding: 10px; width: 280px; }
 .ss-field { display: flex; flex-direction: column; gap: 6px; }
 .ss-label { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
@@ -290,3 +290,4 @@ button.lcd.on { border-color: var(--accent); }
 .menu hr { border: none; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
 .modal-intro { margin: -6px 0 0; color: var(--muted); line-height: 1.5; }
 .modal-intro a { color: var(--accent-2); }
+.status { display: flex; align-items: center; gap: 8px; }

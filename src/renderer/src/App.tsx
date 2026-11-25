@@ -251,7 +251,6 @@ export default function App() {
   const exportAudio = async () => {
     if (exporting) return
     setExporting(true)
-    flash('Rendering audio…')
     try {
       const { channels, sampleRate } = await renderSong(song, 4)
       const path = await api.exportAudio(encodeWav(channels, sampleRate), song.title)
@@ -311,7 +310,7 @@ export default function App() {
         <button onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z)">↷</button>
         <button className={showKeys ? 'on' : ''} onClick={() => setShowKeys((v) => !v)} title="Play with your keyboard (`)">🎹 Keys</button>
         <button onClick={newSong} disabled={!song.tracks.length && !turns.length} title="Start a new song">+ New</button>
-        <Popover className="primary" label={exporting ? 'Rendering…' : 'Export ▾'} align="right" title="Download or save your song">
+        <Popover className={song.tracks.length ? 'primary' : ''} label={exporting ? 'Rendering…' : 'Export ▾'} align="right" title="Download or save your song">
           {(close) => (
             <div className="menu">
               <button disabled={!song.tracks.length || exporting} onClick={() => { close(); exportAudio() }}>
@@ -414,7 +413,11 @@ export default function App() {
         </div>
       </div>
 
-      {status && <div className="status">{status}</div>}
+      {exporting ? (
+        <div className="status"><span className="spinner" /> Rendering your song to audio…</div>
+      ) : (
+        status && <div className="status">{status}</div>
+      )}
       {showSettings && (
         <SettingsModal
           settings={settings}
