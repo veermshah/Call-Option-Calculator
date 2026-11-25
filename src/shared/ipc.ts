@@ -1,5 +1,6 @@
 import type { Song } from './song'
 import type { LyricsRequest, LyricsResult } from './lyrics'
+import type { AlignRequest, AlignResult } from './vocals/score'
 
 export interface ChatTurn {
   role: 'user' | 'assistant'
@@ -29,6 +30,8 @@ export interface RiffApi {
   compose(req: ComposeRequest): Promise<ComposeResult>
   cancelCompose(): Promise<void>
   writeLyrics(req: LyricsRequest): Promise<LyricsResult>
+  /** Fit the lyrics to the Vocal melody, syllable by syllable, for the singing voice. */
+  alignLyrics(req: AlignRequest): Promise<AlignResult>
   onComposeProgress(cb: (chars: number) => void): () => void
   getSettings(): Promise<Settings>
   setApiKey(key: string): Promise<Settings>

@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { compose, DEFAULT_MODEL } from '@shared/composer'
 import { writeLyrics, type LyricsRequest } from '@shared/lyrics'
+import { alignLyrics, type AlignRequest } from '@shared/vocals/score'
 import { normalizeSong, type Song } from '@shared/song'
 import type { ComposeRequest, Settings } from '@shared/ipc'
 
@@ -110,6 +111,23 @@ ipcMain.handle('write-lyrics', async (event, req: LyricsRequest) => {
   const ctrl = new AbortController()
   activeCompose = ctrl
   const result = await writeLyrics(
+    apiKey,
+    publicSettings().model,
+    { ...req, song: normalizeSong(req.song) },
+    (chars) => event.sender.send('compose-progress', chars),
+    ctrl.signal
+  )
+  if (activeCompose === ctrl) activeCompose = null
+  return result
+})
+
+ipcMain.handle('align-lyrics', async (event, req: AlignRequest) => {
+  const apiKey = getApiKey()
+  if (!apiKey) return { ok: false, error: 'Add your Anthropic API key in Settings first.' }
+  activeCompose?.abort()
+  const ctrl = new AbortController()
+  activeCompose = ctrl
+  const result = await alignLyrics(
     apiKey,
     publicSettings().model,
     { ...req, song: normalizeSong(req.song) },

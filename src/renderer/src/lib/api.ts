@@ -84,6 +84,24 @@ function createWebApi(): RiffApi {
       if (active === ctrl) active = null
       return res
     },
+    async alignLyrics(req) {
+      const apiKey = getKey()
+      if (!apiKey) return { ok: false, error: 'Add your Anthropic API key in Settings first.' }
+      active?.abort()
+      const ctrl = new AbortController()
+      active = ctrl
+      const { alignLyrics } = await import('@shared/vocals/score')
+      const res = await alignLyrics(
+        apiKey,
+        settings().model,
+        { ...req, song: normalizeSong(req.song) },
+        (n) => listeners.forEach((l) => l(n)),
+        ctrl.signal,
+        { browser: true }
+      )
+      if (active === ctrl) active = null
+      return res
+    },
     async cancelCompose() {
       active?.abort()
     },

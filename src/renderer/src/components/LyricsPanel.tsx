@@ -10,6 +10,7 @@ interface Props {
   onType: (lyrics: string) => void
   onAccept: (lyrics: string) => void
   onSingIt: () => void
+  onOpenVocals: () => void
   onOpenSettings: () => void
 }
 
@@ -33,7 +34,7 @@ interface Draft {
   instruction: string
 }
 
-export function LyricsPanel({ song, canCompose, composing, onType, onAccept, onSingIt, onOpenSettings }: Props) {
+export function LyricsPanel({ song, canCompose, composing, onType, onAccept, onSingIt, onOpenVocals, onOpenSettings }: Props) {
   const [keepMine, setKeepMine] = useState(true)
   const [custom, setCustom] = useState('')
   const [busy, setBusy] = useState(false)
@@ -157,7 +158,10 @@ export function LyricsPanel({ song, canCompose, composing, onType, onAccept, onS
             <p>Write a line or a whole verse on the left, then pick what you want next. Claude matches your voice, rhyme scheme and syllable counts, and keeps your lines as they are.</p>
             <p className="muted">Lyrics are saved with the project, and the composer reads them for mood.</p>
             <button disabled={!hasLines || !canCompose || composing} onClick={onSingIt} title="Adds a Vocal track with a melody for your lyrics">
-              🎤 Write a vocal melody for these lyrics
+              🎼 Write a vocal melody for these lyrics
+            </button>
+            <button disabled={!hasLines} onClick={onOpenVocals} title="Record yourself singing them, or have Claude sing them">
+              🎤 Sing these lyrics
             </button>
           </div>
         )}

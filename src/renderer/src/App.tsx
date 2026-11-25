@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { emptySong, newId, normalizeSong, type Note, type Song, type Track } from '@shared/song'
+import * as Tone from 'tone'
+import { DEFAULT_TUNE, emptySong, newId, normalizeSong, type Note, type Song, type Track, type TuneSettings, type VocalTake, type VoiceId } from '@shared/song'
+import { tuneContext, vocalMelody } from '@shared/vocals/tune'
+import { VOICE_PRESETS } from '@shared/vocals/sing'
+import { buildScore, guessAlignment, leadInStart, type Syllable } from '@shared/vocals/score'
 import { songToMidi } from '@shared/midi'
 import type { ChatTurn, Settings } from '@shared/ipc'
-import { Engine, renderSong } from './lib/engine'
+import { Engine, renderSong, type VocalAudio } from './lib/engine'
+import { getAudio, getValue, pruneVocals, putAudio, putValue } from './lib/vocalStore'
+import { autotuneTake, singScore } from './lib/vocals'
 import { useHistory } from './lib/useHistory'
 import { loadAutosave, writeAutosave } from './lib/autosave'
 import { demoSong } from './lib/demo'
@@ -13,6 +19,8 @@ import { SettingsModal } from './components/SettingsModal'
 import { KeyboardPanel } from './components/KeyboardPanel'
 import { LyricsPanel } from './components/LyricsPanel'
 import { StartScreen } from './components/StartScreen'
+import { VocalPanel } from './components/VocalPanel'
+import { VocalRow } from './components/VocalRow'
 import { SongSettings } from './components/SongSettings'
 import { Popover } from './components/Popover'
 import { api } from './lib/api'
@@ -40,7 +48,15 @@ export default function App() {
   const [showKeys, setShowKeys] = useState(false)
   const [tab, setTab] = useState<'arrange' | 'lyrics'>('arrange')
   const [recording, setRecording] = useState(false)
+  const [showVocals, setShowVocals] = useState(false)
+  const [vocalAudio, setVocalAudio] = useState<Record<string, VocalAudio>>({})
+  /** What the vocal engine is doing right now ('' when idle), and for which take. */
+  const [vocalWork, setVocalWork] = useState<{ text: string; takeId?: string }>({ text: '' })
+  const pendingSing = useRef<VoiceId | null>(null)
+  const vocalJob = useRef(0)
   const engine = useRef<Engine | null>(null)
+  const songRef = useRef(song)
+  songRef.current = song
 
   // Engine lifecycle
   useEffect(() => {
@@ -57,6 +73,19 @@ export default function App() {
       window.removeEventListener('keydown', unlock, true)
       e.dispose()
     }
+  }, [])
+
+  // Vocal audio is kept in IndexedDB; load what the restored song needs.
+  useEffect(() => {
+    const ids = song.vocals.map((v) => v.id)
+    void Promise.all(ids.map(async (id) => [id, await getAudio(`${id}:out`)] as const)).then((loaded) => {
+      const found: Record<string, VocalAudio> = {}
+      for (const [id, audio] of loaded) if (audio) found[id] = audio
+      for (const [id, audio] of Object.entries(found)) engine.current?.setVocalAudio(id, audio)
+      setVocalAudio((prev) => ({ ...found, ...prev }))
+      void pruneVocals(ids)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -238,6 +267,11 @@ export default function App() {
     }
   }
 
+  const writeMelodyAndSing = (voice: VoiceId) => {
+    pendingSing.current = voice
+    singIt()
+  }
+
   const save = async () => {
     const path = await api.saveProject(song)
     if (path) flash(`Saved ${path}`)
@@ -261,7 +295,7 @@ export default function App() {
     if (exporting) return
     setExporting(true)
     try {
-      const { channels, sampleRate } = await renderSong(song, 4)
+      const { channels, sampleRate } = await renderSong(song, 4, vocalAudio)
       const path = await api.exportAudio(encodeWav(channels, sampleRate), song.title)
       if (path) flash(`Exported ${path}`)
     } catch (err) {
@@ -294,6 +328,7 @@ export default function App() {
     setPlaying(false)
     setRecording(false)
     setShowKeys(false)
+    setShowVocals(false)
     history.set(emptySong())
     setTurns([])
     setSelected(null)
@@ -303,6 +338,163 @@ export default function App() {
   }
 
   const preview = (trackId: string, note: Note) => engine.current?.preview(trackId, note)
+
+  // ---------------------------------------------------------------------------
+  // Vocals
+  // ---------------------------------------------------------------------------
+
+  const setTakeAudio = (id: string, audio: VocalAudio) => {
+    engine.current?.setVocalAudio(id, audio)
+    setVocalAudio((prev) => ({ ...prev, [id]: audio }))
+    void putAudio(`${id}:out`, audio)
+  }
+
+  /** Add a take and mute the synth guide melody so the voice is what you hear. */
+  const addTake = (take: VocalTake) => {
+    let mutedGuide = false
+    history.set((prev) => {
+      const guide = prev.tracks.find((t) => vocalMelody({ ...prev, tracks: [t] }).length && !t.muted)
+      mutedGuide = !!guide
+      return {
+        ...prev,
+        tracks: prev.tracks.map((t) => (t === guide ? { ...t, muted: true } : t)),
+        vocals: [...prev.vocals.filter((v) => v.id !== take.id), take]
+      }
+    })
+    setSelected(take.id)
+    if (mutedGuide) flash('Muted the synth Vocal guide so you hear the voice. Unmute it on its track any time.')
+  }
+
+  const updateTake = (id: string, patch: Partial<VocalTake>, record = true) => {
+    const vocals = song.vocals.map((v) => (v.id === id ? { ...v, ...patch } : v))
+    if (record) history.set({ ...song, vocals })
+    else history.replace({ ...song, vocals })
+  }
+
+  const deleteTake = (id: string) => {
+    history.set({ ...song, vocals: song.vocals.filter((v) => v.id !== id) })
+    if (solo === id) setSolo(null)
+  }
+
+  const onTake = async (samples: Float32Array, sampleRate: number) => {
+    const s = songRef.current
+    const id = `v${newId().slice(1)}`
+    const n = s.vocals.filter((v) => v.kind === 'recorded').length + 1
+    void putAudio(`${id}:raw`, { sampleRate, data: samples })
+    const out = await autotuneTake(samples, tuneContext(s, 0, sampleRate), DEFAULT_TUNE)
+    setTakeAudio(id, { sampleRate, data: out })
+    addTake({
+      id,
+      name: `Take ${n}`,
+      kind: 'recorded',
+      start: 0,
+      duration: samples.length / sampleRate,
+      volume: 0.9,
+      muted: false,
+      tune: DEFAULT_TUNE
+    })
+  }
+
+  // Retuning waits for the sliders to settle, then re-processes the original recording.
+  const retuneTimer = useRef<Record<string, number>>({})
+  const retune = (take: VocalTake, tune: TuneSettings) => {
+    updateTake(take.id, { tune })
+    window.clearTimeout(retuneTimer.current[take.id])
+    retuneTimer.current[take.id] = window.setTimeout(async () => {
+      const raw = await getAudio(`${take.id}:raw`)
+      if (!raw) return flash('The original recording is not in this browser, so it cannot be retuned.')
+      setVocalWork({ text: 'Retuning…', takeId: take.id })
+      try {
+        const latest = songRef.current.vocals.find((v) => v.id === take.id) ?? take
+        const out = await autotuneTake(raw.data, tuneContext(songRef.current, latest.start, raw.sampleRate), tune)
+        setTakeAudio(take.id, { sampleRate: raw.sampleRate, data: out })
+      } finally {
+        setVocalWork({ text: '' })
+      }
+    }, 350)
+  }
+
+  /** Sing stored syllables (or freshly fitted ones) on the current Vocal melody. */
+  const singTake = async (voice: VoiceId, syllables: Syllable[], existing?: VocalTake) => {
+    const s = songRef.current
+    const melody = vocalMelody(s)
+    const from = leadInStart(melody)
+    const notes = buildScore(melody, syllables, s.bpm, from)
+    if (!notes.length) throw new Error('There was nothing to sing. Check the lyrics and the Vocal track.')
+    const sampleRate = Tone.getContext().sampleRate
+    const data = await singScore(notes, sampleRate, voice)
+    const id = existing?.id ?? `v${newId().slice(1)}`
+    void putValue(`${id}:score`, syllables)
+    setTakeAudio(id, { sampleRate, data })
+    const name = existing?.name ?? `${VOICE_PRESETS[voice].label.split(' (')[0]} sings`
+    const take: VocalTake = { ...(existing ?? { volume: 0.9, muted: false, tune: { ...DEFAULT_TUNE, on: false } }), id, name, kind: 'generated', start: from, duration: data.length / sampleRate, voice }
+    if (existing) {
+      history.set((prev) => ({ ...prev, vocals: prev.vocals.map((v) => (v.id === id ? take : v)) }))
+    } else addTake(take)
+  }
+
+  const generateVocals = async (voice: VoiceId) => {
+    const s = songRef.current
+    const melody = vocalMelody(s)
+    if (!melody.length || !s.lyrics.trim()) return
+    const job = ++vocalJob.current
+    setVocalWork({ text: 'Fitting your lyrics to the melody…' })
+    let syllables: Syllable[]
+    let note = ''
+    if (settings.hasApiKey) {
+      const res = await api.alignLyrics({ lyrics: s.lyrics, melody, song: s })
+      if (job !== vocalJob.current) return
+      if (res.ok) {
+        syllables = res.syllables
+        note = res.message
+      } else {
+        if (res.error === 'Cancelled.') return setVocalWork({ text: '' })
+        syllables = guessAlignment(s.lyrics, melody)
+        note = `Claude couldn't fit the words (${res.error}), so this is a rough guess at them.`
+      }
+    } else {
+      syllables = guessAlignment(s.lyrics, melody)
+      note = 'Sung with a rough guess at the words. Add your API key so Claude can fit them properly.'
+    }
+    setVocalWork({ text: 'Singing…' })
+    try {
+      await singTake(voice, syllables)
+      if (note) flash(note)
+      await startPlaying()
+    } catch (err) {
+      flash(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (job === vocalJob.current) setVocalWork({ text: '' })
+    }
+  }
+
+  const revoice = async (take: VocalTake, voice: VoiceId) => {
+    const s = songRef.current
+    const syllables = (await getValue<Syllable[]>(`${take.id}:score`)) ?? guessAlignment(s.lyrics, vocalMelody(s))
+    setVocalWork({ text: 'Singing…', takeId: take.id })
+    try {
+      await singTake(voice, syllables, take)
+    } catch (err) {
+      flash(err instanceof Error ? err.message : String(err))
+    } finally {
+      setVocalWork({ text: '' })
+    }
+  }
+
+  const cancelVocals = () => {
+    vocalJob.current++
+    void api.cancelCompose()
+    setVocalWork({ text: '' })
+  }
+
+  // "Write a melody and sing it": once the composer has added the Vocal track, sing it.
+  useEffect(() => {
+    if (!pendingSing.current || busy) return
+    const voice = pendingSing.current
+    pendingSing.current = null
+    if (vocalMelody(song).length) void generateVocals(voice)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, song])
 
   return (
     <div className="app">
@@ -318,6 +510,7 @@ export default function App() {
         <button onClick={history.undo} disabled={!history.canUndo} title="Undo (Ctrl+Z)">↶</button>
         <button onClick={history.redo} disabled={!history.canRedo} title="Redo (Ctrl+Shift+Z)">↷</button>
         <button className={showKeys ? 'on' : ''} onClick={() => setShowKeys((v) => !v)} title="Play with your keyboard (`)">🎹 Keys</button>
+        <button className={showVocals ? 'on' : ''} onClick={() => setShowVocals((v) => !v)} title="Record or generate vocals">🎤 Vocals</button>
         <button onClick={newSong} disabled={!song.tracks.length && !turns.length} title="Start a new song">+ New</button>
         <Popover className={song.tracks.length ? 'primary' : ''} label={exporting ? 'Rendering…' : 'Export ▾'} align="right" title="Download or save your song">
           {(close) => (
@@ -365,6 +558,10 @@ export default function App() {
             onType={(lyrics) => history.replace({ ...song, lyrics })}
             onAccept={(lyrics) => history.set({ ...song, lyrics })}
             onSingIt={singIt}
+            onOpenVocals={() => {
+              setTab('arrange')
+              setShowVocals(true)
+            }}
             onOpenSettings={() => setShowSettings('settings')}
           />
         ) : (<>
@@ -382,6 +579,22 @@ export default function App() {
             onClear={(id) => updateTrack(id, { notes: [] })}
             onBuildBand={buildBand}
             onClose={() => setShowKeys(false)}
+          />
+        )}
+        {showVocals && (
+          <VocalPanel
+            song={song}
+            engine={engine.current}
+            working={vocalWork.takeId ? '' : vocalWork.text}
+            canCompose={settings.hasApiKey}
+            composing={busy}
+            onStarted={() => setPlaying(true)}
+            onTake={onTake}
+            onGenerate={generateVocals}
+            onWriteMelody={writeMelodyAndSing}
+            onWriteLyrics={() => setTab('lyrics')}
+            onCancel={cancelVocals}
+            onClose={() => setShowVocals(false)}
           />
         )}
         <main className="arrange">
@@ -412,6 +625,26 @@ export default function App() {
                   onDelete={() => deleteTrack(t.id)}
                   onSolo={() => setSolo(solo === t.id ? null : t.id)}
                   onPreview={(n) => preview(t.id, n)}
+                />
+              ))}
+              {song.vocals.map((v) => (
+                <VocalRow
+                  key={v.id}
+                  take={v}
+                  audio={vocalAudio[v.id]}
+                  bars={song.bars}
+                  bpm={song.bpm}
+                  playStep={playStep}
+                  selected={selected === v.id}
+                  soloed={solo === v.id}
+                  hasMelody={vocalMelody(song).length > 0}
+                  busy={vocalWork.takeId === v.id}
+                  onSelect={() => setSelected(selected === v.id ? null : v.id)}
+                  onUpdate={(patch, record) => updateTake(v.id, patch, record)}
+                  onTune={(tune) => retune(v, tune)}
+                  onRevoice={(voice) => revoice(v, voice)}
+                  onDelete={() => deleteTake(v.id)}
+                  onSolo={() => setSolo(solo === v.id ? null : v.id)}
                 />
               ))}
               <button className="add-track" onClick={addTrack}>+ Add track</button>

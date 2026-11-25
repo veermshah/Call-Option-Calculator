@@ -32,6 +32,43 @@ export interface Track {
   notes: Note[]
 }
 
+/** Autotune settings for a recorded take. */
+export interface TuneSettings {
+  on: boolean
+  /** 0..1: how far each note is pulled to the target pitch. */
+  strength: number
+  /** Seconds to glide to the target. 0 = hard, robotic snap; 0.2 = natural. */
+  speed: number
+  /** Pull to the notes of the Vocal track when there is one, else to the key. */
+  followMelody: boolean
+}
+
+export const VOICES = ['aria', 'leo', 'robo'] as const
+export type VoiceId = (typeof VOICES)[number]
+
+/**
+ * A vocal recording or a generated sung part, placed on the loop. The audio
+ * itself is kept separately (it's too big for the song file); this is
+ * everything needed to place, mix and re-process it.
+ */
+export interface VocalTake {
+  id: string
+  name: string
+  kind: 'recorded' | 'generated'
+  /** 16th step in the loop where the take starts. */
+  start: number
+  /** Length in seconds. */
+  duration: number
+  /** 0..1 */
+  volume: number
+  muted: boolean
+  tune: TuneSettings
+  /** Generated takes: which voice sang it. */
+  voice?: VoiceId
+}
+
+export const DEFAULT_TUNE: TuneSettings = { on: true, strength: 0.85, speed: 0.06, followMelody: true }
+
 export interface Song {
   title: string
   bpm: number
@@ -42,10 +79,12 @@ export interface Song {
   /** Lyrics text with optional [Section] headers. */
   lyrics: string
   tracks: Track[]
+  /** Recorded and generated vocals, played over the loop. */
+  vocals: VocalTake[]
 }
 
 export function emptySong(): Song {
-  return { title: 'Untitled', bpm: 100, key: 'C minor', bars: 2, swing: 0, lyrics: '', tracks: [] }
+  return { title: 'Untitled', bpm: 100, key: 'C minor', bars: 2, swing: 0, lyrics: '', tracks: [], vocals: [] }
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +165,32 @@ export function normalizeSong(raw: unknown): Song {
     }
   })
 
+  const vocalsRaw = Array.isArray(r.vocals) ? r.vocals : []
+  const vocals: VocalTake[] = vocalsRaw.slice(0, 8).flatMap((v) => {
+    const vr = (v ?? {}) as Record<string, unknown>
+    if (typeof vr.id !== 'string' || !vr.id) return []
+    const tr = (vr.tune ?? {}) as Record<string, unknown>
+    const voice = (VOICES as readonly string[]).includes(vr.voice as string) ? (vr.voice as VoiceId) : undefined
+    return [
+      {
+        id: vr.id.slice(0, 40),
+        name: typeof vr.name === 'string' && vr.name ? vr.name.slice(0, 40) : 'Vocal take',
+        kind: vr.kind === 'generated' ? 'generated' : 'recorded',
+        start: clamp(Math.round(num(vr.start, 0)), 0, totalSteps - 1),
+        duration: clamp(num(vr.duration, 0), 0, 600),
+        volume: clamp(num(vr.volume, 0.9), 0, 1),
+        muted: vr.muted === true,
+        tune: {
+          on: tr.on !== false,
+          strength: clamp(num(tr.strength, DEFAULT_TUNE.strength), 0, 1),
+          speed: clamp(num(tr.speed, DEFAULT_TUNE.speed), 0, 0.5),
+          followMelody: tr.followMelody !== false
+        },
+        ...(voice ? { voice } : {})
+      }
+    ]
+  })
+
   return {
     title: typeof r.title === 'string' && r.title ? r.title.slice(0, 80) : 'Untitled',
     bpm: clamp(Math.round(num(r.bpm, 100)), 40, 220),
@@ -133,6 +198,7 @@ export function normalizeSong(raw: unknown): Song {
     bars,
     swing: clamp(num(r.swing, 0), 0, 0.5),
     lyrics: typeof r.lyrics === 'string' ? r.lyrics.slice(0, 20000) : '',
-    tracks
+    tracks,
+    vocals
   }
 }
