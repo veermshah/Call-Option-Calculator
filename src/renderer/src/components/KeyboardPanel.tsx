@@ -35,6 +35,8 @@ const TOP_ROW: (string | null)[] = ['KeyW', 'KeyE', null, 'KeyT', 'KeyY', 'KeyU'
 
 interface Held {
   pitches: string[]
+  /** The track the notes went to, so a release reaches it even if the selection changed. */
+  trackId: string
   startPos: number
 }
 
@@ -87,6 +89,9 @@ export function KeyboardPanel(props: Props) {
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      // While Cmd is down, macOS never sends keyup for other keys, so anything
+      // held now could never be released. Let go of it up front.
+      if (e.key === 'Meta') return releaseAll()
       if (isTextEntry(e.target as Element) || e.metaKey || e.ctrlKey || e.altKey) return
       // A focused dropdown would otherwise jump to the option starting with that letter.
       if ((e.target as Element).tagName === 'SELECT') (e.target as HTMLElement).blur()
@@ -105,7 +110,7 @@ export function KeyboardPanel(props: Props) {
       if (e.repeat || heldRef.current[e.code]) return
       const startPos = p.engine?.position() ?? -1
       for (const pitch of pitches) p.engine?.noteOn(p.target.id, pitch, 0.8)
-      heldRef.current = { ...heldRef.current, [e.code]: { pitches, startPos } }
+      heldRef.current = { ...heldRef.current, [e.code]: { pitches, trackId: p.target.id, startPos } }
       setHeld(heldRef.current)
     }
 
@@ -116,8 +121,7 @@ export function KeyboardPanel(props: Props) {
       heldRef.current = rest
       setHeld(rest)
       const p = latest.current
-      if (!p.target) return
-      for (const pitch of h.pitches) p.engine?.noteOff(p.target.id, pitch)
+      for (const pitch of h.pitches) p.engine?.noteOff(h.trackId, pitch)
       if (!p.recording || h.startPos < 0) return
       const total = p.song.bars * STEPS_PER_BAR
       const endPos = p.engine?.position() ?? h.startPos
@@ -125,18 +129,26 @@ export function KeyboardPanel(props: Props) {
       if (len < 0) len += total
       const start = Math.round(h.startPos) % total
       const length = Math.max(1, Math.min(total - start, Math.round(len)))
+      const track = p.song.tracks.find((t) => t.id === h.trackId)
+      if (!track) return
       p.onRecordNotes(
-        p.target.id,
-        h.pitches.map((pitch) => ({ pitch, start, length: p.target!.instrument === 'drums' ? 1 : length, velocity: 0.8 }))
+        track.id,
+        h.pitches.map((pitch) => ({ pitch, start, length: track.instrument === 'drums' ? 1 : length, velocity: 0.8 }))
       )
     }
 
-    // Release everything if the window loses focus mid-chord.
-    const blur = () => {
+    // Let go of every held key. Used when keyups can't be trusted to arrive:
+    // the window or tab loses focus, or Cmd goes down.
+    const releaseAll = () => {
       const p = latest.current
-      for (const h of Object.values(heldRef.current)) for (const pitch of h.pitches) p.target && p.engine?.noteOff(p.target.id, pitch)
+      for (const h of Object.values(heldRef.current)) for (const pitch of h.pitches) p.engine?.noteOff(h.trackId, pitch)
       heldRef.current = {}
       setHeld({})
+      p.engine?.allNotesOff()
+    }
+    const blur = releaseAll
+    const hidden = () => {
+      if (document.visibilityState === 'hidden') releaseAll()
     }
 
     const focusChange = () => setTyping(isTextEntry(document.activeElement))
@@ -146,6 +158,7 @@ export function KeyboardPanel(props: Props) {
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
     window.addEventListener('blur', blur)
+    document.addEventListener('visibilitychange', hidden)
     document.addEventListener('focusin', focusChange)
     document.addEventListener('focusout', focusOut)
     return () => {
@@ -154,7 +167,8 @@ export function KeyboardPanel(props: Props) {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', blur)
-      blur()
+      document.removeEventListener('visibilitychange', hidden)
+      releaseAll()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
