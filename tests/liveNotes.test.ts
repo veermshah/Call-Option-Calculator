@@ -52,13 +52,18 @@ describe('LiveNotes', () => {
     expect(poly.sounding()).toEqual([])
   })
 
-  it('skips the attack if the key was let go before audio started', () => {
+  it('still plays a tap that ended before audio started, then stops it', () => {
+    const attacks: string[] = []
     const poly = fakePoly()
-    const live = new LiveNotes(poly.sink)
+    const live = new LiveNotes({ ...poly.sink, attack: (t, p) => { attacks.push(p); poly.sink.attack(t, p) } })
     live.press('t', 'C4')
     live.release('t', 'C4')
     live.start('t', 'C4', 0.8)
+    expect(attacks).toEqual(['C4'])
     expect(poly.sounding()).toEqual([])
+    // A second start for the same tap does nothing.
+    live.start('t', 'C4', 0.8)
+    expect(attacks).toEqual(['C4'])
   })
 
   it('can play a pitch again after its track synth was replaced', () => {

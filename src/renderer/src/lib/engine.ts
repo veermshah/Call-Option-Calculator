@@ -15,6 +15,11 @@ interface Voice {
   dispose(): void
 }
 
+// A key tapped and let go in the same instant (fast taps, key remappers that
+// only send a key on release) would otherwise start and stop the envelope at
+// the same moment and make no sound. Live notes last at least this long.
+const MIN_LIVE_GATE = 0.09
+
 const dbFromGain = (v: number) => (v <= 0.001 ? -Infinity : 20 * Math.log10(v))
 
 function drumKit(out: Tone.Volume): { trigger: Voice['trigger']; dispose(): void } {
@@ -103,6 +108,8 @@ function makeVoice(track: Track, master: Tone.ToneAudioNode, reverb: Tone.ToneAu
   // One-voice synths (bass) play the newest held key and fall back to the
   // previous one on release, instead of going silent while a key is still down.
   const mono = synth instanceof Tone.MonoSynth ? new MonoStack() : null
+  const startedAt = new Map<string, number>()
+  let monoReleaseAt = 0
   return {
     output,
     trigger: (note, time, stepSeconds) => {
@@ -111,17 +118,23 @@ function makeVoice(track: Track, master: Tone.ToneAudioNode, reverb: Tone.ToneAu
     attack: (pitch, velocity) => {
       try {
         mono?.push(pitch)
-        synth.triggerAttack(pitch, Tone.now() + 0.005, velocity)
+        // Don't let a pending short-note release on the bass cut this new note.
+        const t = Math.max(Tone.now() + 0.005, mono ? monoReleaseAt + 0.002 : 0)
+        startedAt.set(pitch, t)
+        synth.triggerAttack(pitch, t, velocity)
       } catch (err) {
         console.warn('note skipped', pitch, err)
       }
     },
     release: (pitch) => {
-      const t = Tone.now() + 0.005
+      const t = Math.max(Tone.now() + 0.005, (startedAt.get(pitch) ?? 0) + MIN_LIVE_GATE)
+      startedAt.delete(pitch)
       if (synth instanceof Tone.MonoSynth) {
         const next = mono!.remove(pitch)
-        if (next === null) synth.triggerRelease(t)
-        else if (next) synth.setNote(next, t)
+        if (next === null) {
+          monoReleaseAt = t
+          synth.triggerRelease(t)
+        } else if (next) synth.setNote(next, t)
       } else synth.triggerRelease(pitch, t)
     },
     dispose: () => { synth.dispose(); output.dispose() }
@@ -231,6 +244,15 @@ export class Engine {
 
   noteOff(trackId: string, pitch: string) {
     this.live.release(trackId, pitch)
+  }
+
+  /**
+   * Start audio from inside a click or key press. Browsers only allow it in
+   * response to one, and resuming can take a moment, so doing it on the first
+   * interaction means the first notes played aren't lost.
+   */
+  unlock() {
+    if (Tone.getContext().state !== 'running') void Tone.start().catch(() => {})
   }
 
   /** Panic: stop every live-played note on every track. */
