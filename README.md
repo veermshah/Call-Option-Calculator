@@ -2,6 +2,8 @@
 
 A desktop studio for making music with Claude. Describe a vibe ("dusty lo-fi beat at 84 bpm with jazzy keys") and Claude writes a multi-track loop. Then keep talking to reshape it ("make the drums busier", "add a counter-melody"), or edit notes by hand in the piano roll.
 
+The first screen gives you four ways in: type a vibe (or tap a style) and hit **Create song**, **Play it yourself** on your keyboard, **Hear a demo** you can remix, or **Start blank**. Riff asks for your API key only the first time Claude is needed, then carries on with what you asked. Your song autosaves in the browser, and **Export** downloads it as audio (WAV), MIDI or a project file.
+
 Or skip the typing: press **🎹 Keys** (or `` ` ``), play a few chords on your laptop's home row, and hit **Build the band around this**. Claude writes drums, bass and more to fit what you played, and never touches your part.
 
 Built with Electron, React, TypeScript, Tone.js and the Anthropic SDK. Runs as a desktop app or in the browser: **https://riff-studio-one.vercel.app** (bring your own Anthropic API key).
@@ -51,9 +53,9 @@ Tone.js engine plays the Song; piano roll edits it; undo/redo over every change
 - **Composer** (`src/shared/composer.ts`): sends the current song plus recent chat to Claude with a JSON schema for the response, so edits build on what's there. The API key never reaches the renderer.
 - **Engine** (`src/renderer/src/lib/engine.ts`): synthesized voices per instrument, swing, mute/solo, live edits while playing.
 - **Web build** (`vite.web.config.ts`, `src/renderer/src/lib/api.ts`): the same renderer with a browser implementation of the desktop API. Deployed on Vercel as a static site (`vercel.json`).
-- **Export**: Save/Open `.riff.json` projects and export a 4× looped Standard MIDI File to drop into any DAW.
+- **Export**: render a 4× looped WAV offline with the same synths (`renderSong` in `engine.ts`), export a 4× looped Standard MIDI File, or Save/Open `.riff.json` projects. The current song also autosaves to localStorage (`lib/autosave.ts`).
 
-Try `examples/late-night-tape.riff.json` via **Open** without an API key.
+Press **Hear a demo** on the start screen (it loads `examples/late-night-tape.riff.json`) to try Riff without an API key.
 
 ## Shortcuts
 
@@ -64,7 +66,6 @@ Try `examples/late-night-tape.riff.json` via **Open** without an API key.
 ## Ideas for next steps
 
 - Sample-based drum kits and instrument presets
-- Audio export (WAV) via offline rendering
 - Song sections (intro / verse / drop) and an arrangement timeline
 - Per-track "regenerate just this part" and variations
 - MIDI input / output to drive hardware and DAWs

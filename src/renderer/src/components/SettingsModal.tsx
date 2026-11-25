@@ -4,6 +4,8 @@ import { api, isDesktop } from '../lib/api'
 
 interface Props {
   settings: Settings
+  /** First-run version: shown when you try to create before adding a key. */
+  setup?: boolean
   onClose: () => void
   onSaved: (s: Settings) => void
 }
@@ -14,7 +16,7 @@ const MODELS = [
   { id: 'claude-fable-5-2', label: 'Claude Fable 5.2 (most capable)' }
 ]
 
-export function SettingsModal({ settings, onClose, onSaved }: Props) {
+export function SettingsModal({ settings, setup, onClose, onSaved }: Props) {
   const [key, setKey] = useState('')
   const [model, setModel] = useState(settings.model)
   const [saving, setSaving] = useState(false)
@@ -31,7 +33,17 @@ export function SettingsModal({ settings, onClose, onSaved }: Props) {
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-        <h2>Settings</h2>
+        {setup ? (
+          <>
+            <h2>One quick step before Claude composes</h2>
+            <p className="modal-intro">
+              Riff runs on your own Anthropic API key. Paste it once and every song after this starts right away.{' '}
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">Get a key ↗</a>
+            </p>
+          </>
+        ) : (
+          <h2>Settings</h2>
+        )}
         <label>
           Anthropic API key
           <input
@@ -40,6 +52,9 @@ export function SettingsModal({ settings, onClose, onSaved }: Props) {
             autoFocus
             placeholder={settings.hasApiKey ? '•••••••• saved — paste a new key to replace' : 'sk-ant-…'}
             onChange={(e) => setKey(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (key.trim() || !setup)) save()
+            }}
           />
           <small>
             {isDesktop
@@ -47,7 +62,7 @@ export function SettingsModal({ settings, onClose, onSaved }: Props) {
               : 'Stored only in this browser. Requests go straight from your browser to api.anthropic.com; this site never sees your key.'}
           </small>
         </label>
-        <label>
+        {!setup && (<label>
           Model
           <select value={model} onChange={(e) => setModel(e.target.value)}>
             {MODELS.map((m) => (
@@ -55,9 +70,9 @@ export function SettingsModal({ settings, onClose, onSaved }: Props) {
             ))}
             {!MODELS.some((m) => m.id === model) && <option value={model}>{model}</option>}
           </select>
-        </label>
+        </label>)}
         <div className="modal-actions">
-          {settings.hasApiKey && (
+          {settings.hasApiKey && !setup && (
             <button
               className="danger"
               onClick={async () => onSaved(await api.setApiKey(''))}
@@ -67,7 +82,9 @@ export function SettingsModal({ settings, onClose, onSaved }: Props) {
           )}
           <span className="spacer" />
           <button onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={saving} onClick={save}>Save</button>
+          <button className="primary" disabled={saving || (setup && !key.trim())} onClick={save}>
+            {setup ? 'Save and create' : 'Save'}
+          </button>
         </div>
       </div>
     </div>

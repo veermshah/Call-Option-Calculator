@@ -130,6 +130,11 @@ function createWebApi(): RiffApi {
       const name = `${safeName(suggestedName)}.mid`
       download(new Uint8Array(bytes), "audio/midi", name)
       return name
+    },
+    async exportAudio(bytes: Uint8Array, suggestedName: string) {
+      const name = `${safeName(suggestedName)}.wav`
+      download(new Uint8Array(bytes), 'audio/wav', name)
+      return name
     }
   }
 }

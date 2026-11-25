@@ -270,3 +270,47 @@ export class Engine {
     this.voices.clear()
   }
 }
+
+/**
+ * Render the song offline (faster than real time) with the same voices the
+ * engine plays, `loops` times through plus a short tail for reverb. Muted
+ * tracks are left out; solo is ignored so the export is the full mix.
+ */
+export async function renderSong(song: Song, loops = 4): Promise<{ channels: Float32Array[]; sampleRate: number }> {
+  const total = song.bars * STEPS_PER_BAR
+  const stepSeconds = 60 / song.bpm / 4
+  const duration = total * loops * stepSeconds + 3
+  const buffer = await Tone.Offline(async (ctx) => {
+    const limiter = new Tone.Limiter(-1).toDestination()
+    const master = new Tone.Volume(-4).connect(limiter)
+    const reverb = new Tone.Reverb({ decay: 3.5, wet: 1 })
+    const reverbReturn = new Tone.Volume(-12).connect(master)
+    reverb.connect(reverbReturn)
+    await reverb.ready
+
+    const transport = ctx.transport
+    transport.bpm.value = song.bpm
+    transport.swing = song.swing
+    transport.swingSubdivision = '16n'
+
+    const voices = song.tracks
+      .filter((t) => !t.muted && t.notes.length)
+      .map((t) => ({ track: t, voice: makeVoice(t, master, reverb) }))
+
+    let step = 0
+    transport.scheduleRepeat((time) => {
+      if (step >= total * loops) return
+      const s = step % total
+      for (const { track, voice } of voices) {
+        for (const n of track.notes) if (n.start === s) voice.trigger(n, time, stepSeconds)
+      }
+      step++
+    }, '16n')
+    transport.start(0)
+  }, duration)
+  const audio = buffer.get()
+  if (!audio) throw new Error('Nothing was rendered')
+  const channels: Float32Array[] = []
+  for (let c = 0; c < audio.numberOfChannels; c++) channels.push(audio.getChannelData(c))
+  return { channels, sampleRate: audio.sampleRate }
+}

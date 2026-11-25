@@ -15,7 +15,8 @@ const api: RiffApi = {
   setModel: (model) => ipcRenderer.invoke('set-model', model),
   saveProject: (song) => ipcRenderer.invoke('save-project', song),
   openProject: () => ipcRenderer.invoke('open-project'),
-  exportMidi: (bytes, name) => ipcRenderer.invoke('export-midi', bytes, name)
+  exportMidi: (bytes, name) => ipcRenderer.invoke('export-midi', bytes, name),
+  exportAudio: (bytes, name) => ipcRenderer.invoke('export-audio', bytes, name)
 }
 
 contextBridge.exposeInMainWorld('riff', api)
