@@ -105,7 +105,9 @@ function sampledKit(def: KitDef, out: Tone.Volume): { trigger: Voice['trigger'];
         try { open.stop(time) } catch { /* already ended */ }
         open = null
       }
-      const src = new Tone.ToneBufferSource(buffer).connect(out)
+      // Bound to the output's context: during an offline render, Tone's global
+      // context is already back to the live one when these callbacks run.
+      const src = new Tone.ToneBufferSource({ url: buffer, context: out.context }).connect(out)
       src.fadeOut = 0.02
       src.onended = () => { live.delete(src); src.dispose() }
       live.add(src)
@@ -579,7 +581,7 @@ export async function renderSong(song: Song, loops = 4, vocals: Record<string, V
       for (const { take, bus, buffer } of takes) {
         if (take.start !== s) continue
         const len = takeLength(take, buffer, total, stepSeconds)
-        if (len > 0) new Tone.ToneBufferSource(buffer).connect(bus).start(time, 0, len)
+        if (len > 0) new Tone.ToneBufferSource({ url: buffer, context: bus.context }).connect(bus).start(time, 0, len)
       }
       step++
     }, '16n')
