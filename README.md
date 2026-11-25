@@ -48,14 +48,19 @@ chat prompt + current song  ──IPC──▶ composer.ts ──▶ Claude (str
 Tone.js engine plays the Song; piano roll edits it; undo/redo over every change
 ```
 
-- **Song model** (`src/shared/song.ts`): tracks of notes on a 16th-note grid. Instruments: drums, bass, lead, pad, pluck, keys. Drum notes use sound names (`kick`, `snare`, `hat`…).
+- **Song model** (`src/shared/song.ts`): tracks of notes on a 16th-note grid. Drum notes use sound names (`kick`, `snare`, `hat`, `crash`, `ride`…).
+- **Instruments** (`src/shared/instruments.ts`): about 80 instruments in 12 families (drum kits, basses, pianos and keys, organs, mallets, guitars, strings, brass, woodwinds, voices, synths, world). The six original synths are still there under their old ids; the rest play recorded samples that load on first use. Pick one from the menu on each track, and press ▶ to hear it.
 - **Lyricist** (`src/shared/lyrics.ts`): returns lyrics line by line with a `mine` flag per line, then checks those flags against your original text.
 - **Composer** (`src/shared/composer.ts`): sends the current song plus recent chat to Claude with a JSON schema for the response, so edits build on what's there. The API key never reaches the renderer.
-- **Engine** (`src/renderer/src/lib/engine.ts`): synthesized voices per instrument, swing, mute/solo, live edits while playing.
+- **Engine** (`src/renderer/src/lib/engine.ts`): synthesized and sampled voices per instrument (samples load lazily via `lib/samples.ts`), swing, mute/solo, live edits while playing.
 - **Web build** (`vite.web.config.ts`, `src/renderer/src/lib/api.ts`): the same renderer with a browser implementation of the desktop API. Deployed on Vercel as a static site (`vercel.json`).
 - **Export**: render a 4× looped WAV offline with the same synths (`renderSong` in `engine.ts`), export a 4× looped Standard MIDI File, or Save/Open `.riff.json` projects. The current song also autosaves to localStorage (`lib/autosave.ts`).
 
 Press **Hear a demo** on the start screen (it loads `examples/late-night-tape.riff.json`) to try Riff without an API key.
+
+## Sound credits
+
+The sampled instruments are the FluidR3 General MIDI SoundFont by Frank Wen (MIT), as rendered by [midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts) (CC BY 3.0). The drum kits are samples from [Sonic Pi](https://github.com/sonic-pi-net/sonic-pi) (CC0). Both allow commercial use and redistribution with credit; details are in `src/renderer/public/samples/CREDITS.md`. To add instruments, edit the catalog and run `node scripts/fetch-samples.mjs` (needs ffmpeg).
 
 ## Shortcuts
 
@@ -65,7 +70,6 @@ Press **Hear a demo** on the start screen (it loads `examples/late-night-tape.ri
 
 ## Ideas for next steps
 
-- Sample-based drum kits and instrument presets
 - Song sections (intro / verse / drop) and an arrangement timeline
 - Per-track "regenerate just this part" and variations
 - MIDI input / output to drive hardware and DAWs

@@ -1,7 +1,9 @@
 import * as Tone from 'tone'
 import type { DrumSound, Instrument, Note, Song, Track, VocalTake } from '@shared/song'
-import { STEPS_PER_BAR } from '@shared/song'
+import { DRUM_SOUNDS, STEPS_PER_BAR, midiToPitch } from '@shared/song'
 import { LiveNotes, MonoStack } from '@shared/liveNotes'
+import { instrumentDef, sampleGainDb, type KitDef, type SampledDef } from '@shared/instruments'
+import { loadInstrument, loadedSamples, needsSamples, type KitSet, type SampleSet } from './samples'
 
 // A small Tone.js engine: one 16th-note tick drives every track, reading the
 // latest song on each tick so edits are heard immediately.
@@ -50,6 +52,14 @@ function drumKit(out: Tone.Volume): { trigger: Voice['trigger']; dispose(): void
   const hat = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0 } }).connect(hatFilter)
   const openhat = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.35, sustain: 0 } }).connect(hatFilter)
   const rim = new Tone.MembraneSynth({ pitchDecay: 0.005, octaves: 1, envelope: { attack: 0.001, decay: 0.04, sustain: 0 } }).connect(out)
+  const crashFilter = new Tone.Filter(5000, 'highpass').connect(out)
+  const crash = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.002, decay: 1.6, sustain: 0 } }).connect(crashFilter)
+  const ride = new Tone.MetalSynth({ envelope: { attack: 0.001, decay: 1.2, release: 0.3 }, harmonicity: 5.1, modulationIndex: 20, resonance: 5000, octaves: 1 }).connect(out)
+  ride.frequency.value = 300
+  ride.volume.value = -16
+  const bellFilter = new Tone.Filter(900, 'bandpass').connect(out)
+  const bell = new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'square' }, envelope: { attack: 0.001, decay: 0.25, sustain: 0, release: 0.05 } }).connect(bellFilter)
+  bell.volume.value = -6
 
   const play: Record<DrumSound, (t: number, v: number) => void> = {
     kick: (t, v) => kick.triggerAttackRelease('C1', '8n', t, v),
@@ -61,16 +71,100 @@ function drumKit(out: Tone.Volume): { trigger: Voice['trigger']; dispose(): void
     clap: (t, v) => clap.triggerAttackRelease('16n', t, v),
     hat: (t, v) => hat.triggerAttackRelease('32n', t, v * 0.5),
     openhat: (t, v) => openhat.triggerAttackRelease('8n', t, v * 0.45),
-    rim: (t, v) => rim.triggerAttackRelease('E5', '32n', t, v * 0.7)
+    rim: (t, v) => rim.triggerAttackRelease('E5', '32n', t, v * 0.7),
+    crash: (t, v) => crash.triggerAttackRelease('2n', t, v * 0.4),
+    ride: (t, v) => ride.triggerAttackRelease('8n', t, v * 0.6),
+    cowbell: (t, v) => bell.triggerAttackRelease([540, 800], '16n', t, v * 0.5)
   }
-  const nodes = [kick, tom, snare, snareBody, snareFilter, clap, clapFilter, hat, openhat, hatFilter, rim]
+  const nodes = [kick, tom, snare, snareBody, snareFilter, clap, clapFilter, hat, openhat, hatFilter, rim, crash, crashFilter, ride, bell, bellFilter]
   return {
     trigger: (note, time) => play[note.pitch as DrumSound]?.(time, note.velocity),
     dispose: () => nodes.forEach((n) => n.dispose())
   }
 }
 
-function melodic(instrument: Exclude<Instrument, 'drums'>, out: Tone.Volume, fx: Tone.ToneAudioNode): Tone.PolySynth | Tone.MonoSynth {
+// How loud each drum sound sits in a sampled kit (the files are all peak-normalised).
+const KIT_MIX: Record<DrumSound, number> = {
+  kick: 1, snare: 0.85, clap: 0.8, hat: 0.45, openhat: 0.4, tom: 0.75, rim: 0.6, crash: 0.5, ride: 0.4, cowbell: 0.5
+}
+
+/** A drum kit that plays recorded hits. Silent until its samples arrive. */
+function sampledKit(def: KitDef, out: Tone.Volume): { trigger: Voice['trigger']; dispose(): void } {
+  let open: Tone.ToneBufferSource | null = null
+  const live = new Set<Tone.ToneBufferSource>()
+  // The synth kit stands in until the recordings arrive.
+  let stand: ReturnType<typeof drumKit> | null = loadedSamples(def.id) ? null : drumKit(out)
+  void loadInstrument(def.id).catch(() => {})
+  return {
+    trigger: (note, time, stepSeconds) => {
+      const sound = note.pitch as DrumSound
+      const buffer = (loadedSamples(def.id) as KitSet | undefined)?.[sound]
+      if (!buffer) return stand?.trigger(note, time, stepSeconds)
+      // A closed hat cuts off a ringing open hat, like a real one.
+      if ((sound === 'hat' || sound === 'openhat') && open) {
+        try { open.stop(time) } catch { /* already ended */ }
+        open = null
+      }
+      const src = new Tone.ToneBufferSource(buffer).connect(out)
+      src.fadeOut = 0.02
+      src.onended = () => { live.delete(src); src.dispose() }
+      live.add(src)
+      src.start(time, 0, undefined, note.velocity * (KIT_MIX[sound] ?? 0.7))
+      if (sound === 'openhat') open = src
+    },
+    dispose: () => {
+      for (const src of live) src.dispose()
+      live.clear()
+      stand?.dispose()
+      stand = null
+    }
+  }
+}
+
+/**
+ * A recorded instrument. Until its samples have loaded it plays a plain synth
+ * so nothing goes silent, then switches over.
+ */
+function sampledInstrument(def: SampledDef, out: Tone.Volume) {
+  const fallback = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'triangle' },
+    envelope: { attack: 0.005, decay: 0.3, sustain: 0.4, release: Math.min(def.release, 0.8) }
+  }).connect(out)
+  fallback.volume.value = -10
+  let sampler: Tone.Sampler | null = null
+  let disposed = false
+  const make = (set: SampleSet) => {
+    if (disposed || sampler) return
+    sampler = new Tone.Sampler({ urls: set, release: def.release, attack: 0 }).connect(out)
+    sampler.volume.value = sampleGainDb(def.id) + 2
+  }
+  const now = loadedSamples(def.id) as SampleSet | undefined
+  if (now) make(now)
+  else void loadInstrument(def.id).then(() => make(loadedSamples(def.id) as SampleSet)).catch(() => {})
+  // Which sound each held key started on, so its release goes to the same one.
+  const heldOn = new Map<string, Tone.Sampler | Tone.PolySynth>()
+  return {
+    triggerAttackRelease: (pitch: string, duration: number, time: number, velocity: number) =>
+      (sampler ?? fallback).triggerAttackRelease(pitch, duration, time, velocity),
+    triggerAttack: (pitch: string, time: number, velocity: number) => {
+      const s = sampler ?? fallback
+      heldOn.set(pitch, s)
+      s.triggerAttack(pitch, time, velocity)
+    },
+    triggerRelease: (pitch: string, time: number) => {
+      const s = heldOn.get(pitch) ?? sampler ?? fallback
+      heldOn.delete(pitch)
+      s.triggerRelease(pitch, time)
+    },
+    dispose: () => {
+      disposed = true
+      fallback.dispose()
+      sampler?.dispose()
+    }
+  }
+}
+
+function melodic(instrument: Instrument, out: Tone.Volume, fx: Tone.ToneAudioNode): Tone.PolySynth | Tone.MonoSynth {
   switch (instrument) {
     case 'bass':
       return new Tone.MonoSynth({
@@ -109,14 +203,40 @@ function melodic(instrument: Exclude<Instrument, 'drums'>, out: Tone.Volume, fx:
 
 function makeVoice(track: Track, master: Tone.ToneAudioNode, reverb: Tone.ToneAudioNode): Voice {
   const output = new Tone.Volume(dbFromGain(track.volume)).connect(master)
-  if (track.instrument === 'drums') {
-    const kit = drumKit(output)
+  const def = instrumentDef(track.instrument)
+  if (def.kind === 'kit') {
+    const kit = def.sounds ? sampledKit(def, output) : drumKit(output)
     return {
       output,
       trigger: kit.trigger,
       attack: (pitch, velocity) => kit.trigger({ pitch, start: 0, length: 1, velocity }, Tone.now() + 0.005, 0),
       release: () => {},
       dispose: () => { kit.dispose(); output.dispose() }
+    }
+  }
+  if (def.kind === 'sampled') {
+    const inst = sampledInstrument(def, output)
+    const startedAt = new Map<string, number>()
+    return {
+      output,
+      trigger: (note, time, stepSeconds) => {
+        try {
+          inst.triggerAttackRelease(note.pitch, Math.max(0.03, note.length * stepSeconds * 0.95), time, note.velocity)
+        } catch (err) {
+          console.warn('note skipped', note.pitch, err)
+        }
+      },
+      attack: (pitch, velocity) => {
+        const t = Tone.now() + 0.005
+        startedAt.set(pitch, t)
+        try { inst.triggerAttack(pitch, t, velocity) } catch (err) { console.warn('note skipped', pitch, err) }
+      },
+      release: (pitch) => {
+        const t = Math.max(Tone.now() + 0.005, (startedAt.get(pitch) ?? 0) + MIN_LIVE_GATE)
+        startedAt.delete(pitch)
+        try { inst.triggerRelease(pitch, t) } catch { /* nothing held */ }
+      },
+      dispose: () => { inst.dispose(); output.dispose() }
     }
   }
   const synth = melodic(track.instrument, output, reverb)
@@ -155,6 +275,23 @@ function makeVoice(track: Track, master: Tone.ToneAudioNode, reverb: Tone.ToneAu
     },
     dispose: () => { synth.dispose(); output.dispose() }
   }
+}
+
+/** A few notes that show off an instrument: a groove for kits, an arpeggio otherwise. */
+export function auditionPhrase(id: Instrument): Note[] {
+  const def = instrumentDef(id)
+  const n = (pitch: string, start: number, length = 1, velocity = 0.8): Note => ({ pitch, start, length, velocity })
+  if (def.role === 'drums') {
+    const kit: DrumSound[] = ['kick', 'hat', 'snare', 'hat', 'kick', 'kick', 'snare', 'openhat']
+    return kit.filter((d) => (DRUM_SOUNDS as readonly string[]).includes(d)).map((d, i) => n(d, i * 2, 1, d === 'hat' ? 0.6 : 0.9))
+  }
+  // A C in the middle of the instrument's comfortable range.
+  const root = Math.round((def.home[0] + def.home[1]) / 2 / 12) * 12
+  if (def.role === 'bass') return [n(midiToPitch(root), 0, 3), n(midiToPitch(root + 7), 4, 3), n(midiToPitch(root + 12), 8, 2), n(midiToPitch(root), 12, 4)]
+  return [
+    ...[0, 4, 7, 12].map((iv, i) => n(midiToPitch(root + iv), i * 2, 2)),
+    ...[0, 4, 7].map((iv) => n(midiToPitch(root + iv), 8, 8, 0.7))
+  ]
 }
 
 export class Engine {
@@ -324,6 +461,27 @@ export class Engine {
     this.live.releaseAll()
   }
 
+  private auditioner: { id: string; voice: Voice } | null = null
+
+  /**
+   * Play a short phrase on an instrument so it can be heard before (or right
+   * after) picking it. Waits for its samples to load first.
+   */
+  async audition(id: Instrument) {
+    await Tone.start()
+    await loadInstrument(id).catch(() => {})
+    if (this.auditioner?.id !== id) {
+      const old = this.auditioner
+      if (old) setTimeout(() => old.voice.dispose(), 4000)
+      const track: Track = { id: 'audition', name: '', instrument: id, volume: 0.8, muted: false, locked: false, notes: [] }
+      this.auditioner = { id, voice: makeVoice(track, this.master, this.reverb) }
+    }
+    const { voice } = this.auditioner
+    const step = 60 / Math.max(90, Tone.getTransport().bpm.value) / 4
+    const t0 = Tone.now() + 0.05
+    for (const n of auditionPhrase(id)) voice.trigger(n, t0 + n.start * step, step)
+  }
+
   /** Audition a single note (e.g. when clicking the piano roll). */
   async preview(trackId: string, note: Note) {
     await Tone.start()
@@ -381,6 +539,8 @@ export class Engine {
  * tracks are left out; solo is ignored so the export is the full mix.
  */
 export async function renderSong(song: Song, loops = 4, vocals: Record<string, VocalAudio> = {}): Promise<{ channels: Float32Array[]; sampleRate: number }> {
+  // Recorded instruments must be in memory before the offline render starts.
+  await Promise.all(song.tracks.filter((t) => !t.muted && needsSamples(t.instrument)).map((t) => loadInstrument(t.instrument)))
   const total = song.bars * STEPS_PER_BAR
   const stepSeconds = 60 / song.bpm / 4
   const duration = total * loops * stepSeconds + 3

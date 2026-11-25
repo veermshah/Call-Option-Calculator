@@ -625,6 +625,7 @@ export default function App() {
                   onDelete={() => deleteTrack(t.id)}
                   onSolo={() => setSolo(solo === t.id ? null : t.id)}
                   onPreview={(n) => preview(t.id, n)}
+                  onAudition={(id) => void engine.current?.audition(id)}
                 />
               ))}
               {song.vocals.map((v) => (

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { DRUM_SOUNDS, midiToPitch, STEPS_PER_BAR, type Note, type Song, type Track } from '@shared/song'
+import { isBassRole, isDrumKit } from '@shared/instruments'
 import { CHORD_KEYS, diatonicChord, KEY_LABEL, keyboardChord, noteName, parseKey, PIANO_KEYS, romanFor } from '@shared/theory'
 import type { Engine } from '../lib/engine'
 
@@ -62,12 +63,12 @@ export function KeyboardPanel(props: Props) {
   settings.current = { mode, octave }
 
   const scale = parseKey(song.key)
-  const drums = target?.instrument === 'drums'
+  const drums = !!target && isDrumKit(target.instrument)
 
   const pitchesFor = (code: string): string[] | null => {
     const { mode, octave } = settings.current
     const t = latest.current.target
-    if (t?.instrument === 'drums') {
+    if (t && isDrumKit(t.instrument)) {
       const i = HOME_ROW.indexOf(code)
       return i >= 0 && i < DRUM_SOUNDS.length ? [DRUM_SOUNDS[i]] : null
     }
@@ -76,7 +77,7 @@ export function KeyboardPanel(props: Props) {
       if (degree === undefined) return null
       const chord = keyboardChord(parseKey(latest.current.song.key), degree, (octave + 1) * 12)
       // Bass is one note at a time: play the chord's root an octave down.
-      if (t?.instrument === 'bass') {
+      if (t && isBassRole(t.instrument)) {
         const root = diatonicRoot(parseKey(latest.current.song.key), degree, octave * 12)
         return [root]
       }
@@ -133,7 +134,7 @@ export function KeyboardPanel(props: Props) {
       if (!track) return
       p.onRecordNotes(
         track.id,
-        h.pitches.map((pitch) => ({ pitch, start, length: track.instrument === 'drums' ? 1 : length, velocity: 0.8 }))
+        h.pitches.map((pitch) => ({ pitch, start, length: isDrumKit(track.instrument) ? 1 : length, velocity: 0.8 }))
       )
     }
 

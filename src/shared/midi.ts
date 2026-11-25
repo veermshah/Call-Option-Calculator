@@ -1,4 +1,5 @@
 import { pitchToMidi, STEPS_PER_BAR, type DrumSound, type Song } from './song'
+import { instrumentDef, isDrumKit } from './instruments'
 
 // Minimal Standard MIDI File (format 1) writer. 96 ticks per quarter note,
 // so one 16th step = 24 ticks.
@@ -8,11 +9,8 @@ const TICKS_PER_STEP = PPQ / 4
 
 // General MIDI percussion map (channel 10).
 const GM_DRUMS: Record<DrumSound, number> = {
-  kick: 36, snare: 38, clap: 39, hat: 42, openhat: 46, tom: 45, rim: 37
+  kick: 36, snare: 38, clap: 39, hat: 42, openhat: 46, tom: 45, rim: 37, crash: 49, ride: 51, cowbell: 56
 }
-
-// General MIDI programs per instrument.
-const GM_PROGRAM = { bass: 38, lead: 81, pad: 89, pluck: 45, keys: 4 } as const
 
 function vlq(n: number): number[] {
   const bytes = [n & 0x7f]
@@ -61,7 +59,7 @@ export function songToMidi(song: Song, repeats = 1): Uint8Array {
   let nextChannel = 0
   for (const t of song.tracks) {
     if (t.muted) continue
-    const drums = t.instrument === 'drums'
+    const drums = isDrumKit(t.instrument)
     let ch = 9
     if (!drums) {
       ch = nextChannel++
@@ -70,7 +68,7 @@ export function songToMidi(song: Song, repeats = 1): Uint8Array {
     }
     const name = ascii(t.name)
     const events: Ev[] = [{ tick: 0, order: 0, bytes: [0xff, 0x03, ...vlq(name.length), ...name] }]
-    if (!drums) events.push({ tick: 0, order: 1, bytes: [0xc0 | ch, GM_PROGRAM[t.instrument as keyof typeof GM_PROGRAM]] })
+    if (!drums) events.push({ tick: 0, order: 1, bytes: [0xc0 | ch, instrumentDef(t.instrument).gm] })
     events.push({ tick: 0, order: 2, bytes: [0xb0 | ch, 7, Math.round(t.volume * 127)] })
 
     for (let r = 0; r < repeats; r++) {
