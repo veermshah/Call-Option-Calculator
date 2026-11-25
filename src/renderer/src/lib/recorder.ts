@@ -16,7 +16,6 @@ class RiffCapture extends AudioWorkletProcessor {
   process(inputs) {
     const ch = inputs[0] && inputs[0][0]
     if (ch && ch.length) {
-      if (this.n === 0) this.first = currentFrame
       if (this.n + ch.length > this.buf.length) this.flush()
       if (this.n === 0) this.first = currentFrame
       this.buf.set(ch, this.n)
@@ -82,17 +81,31 @@ export class MicRecorder {
             : 'Could not open the microphone.'
       )
     }
+    try {
+      await this.connect()
+    } catch (err) {
+      this.close()
+      throw err
+    }
+  }
+
+  private async connect() {
     await Tone.start()
     const ctx = Tone.getContext()
+    const raw = rawContext() as AudioContext
     if (!moduleAdded) {
+      // Added on the context directly: Tone only keeps one worklet module of its own.
+      if (!raw.audioWorklet) throw new Error('This browser cannot record audio here. Try Chrome, Edge or Safari over https.')
       const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }))
-      moduleAdded = ctx.addAudioWorkletModule(url)
+      moduleAdded = raw.audioWorklet.addModule(url).catch((err) => {
+        moduleAdded = null
+        throw err
+      })
     }
     await moduleAdded
-    const raw = rawContext() as AudioContext
-    this.source = raw.createMediaStreamSource(this.stream)
+    this.source = ctx.createMediaStreamSource(this.stream!)
     this.node = ctx.createAudioWorkletNode('riff-capture') as unknown as AudioWorkletNode
-    this.sink = raw.createGain()
+    this.sink = ctx.createGain()
     this.sink.gain.value = 0
     this.source.connect(this.node)
     this.node.connect(this.sink)
@@ -104,8 +117,8 @@ export class MicRecorder {
       const rms = Math.sqrt(s / e.data.data.length)
       this.level = Math.min(1, rms * 4)
       this.onLevel?.(this.level)
-      // Keep only the last minute while idle so memory doesn't grow.
-      if (this.chunks.length > 800) this.chunks.splice(0, this.chunks.length - 800)
+      // Keep only the last minute or so so memory doesn't grow.
+      if (this.chunks.length > 1500) this.chunks.splice(0, this.chunks.length - 1500)
     }
   }
 
