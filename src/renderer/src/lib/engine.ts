@@ -1,5 +1,5 @@
 import * as Tone from 'tone'
-import type { DrumSound, Instrument, Note, Song, Track } from '@shared/song'
+import type { DrumSound, Instrument, Note, Song, Track, VocalTake } from '@shared/song'
 import { STEPS_PER_BAR } from '@shared/song'
 import { LiveNotes, MonoStack } from '@shared/liveNotes'
 
@@ -19,6 +19,22 @@ interface Voice {
 // only send a key on release) would otherwise start and stop the envelope at
 // the same moment and make no sound. Live notes last at least this long.
 const MIN_LIVE_GATE = 0.09
+
+/** Mono vocal audio as stored by the app. */
+export interface VocalAudio {
+  sampleRate: number
+  data: Float32Array
+}
+
+function toBuffer(ctx: Tone.BaseContext, audio: VocalAudio): Tone.ToneAudioBuffer {
+  const buf = ctx.createBuffer(1, Math.max(1, audio.data.length), audio.sampleRate)
+  buf.copyToChannel(audio.data as Float32Array<ArrayBuffer>, 0)
+  return new Tone.ToneAudioBuffer(buf as unknown as AudioBuffer)
+}
+
+/** Seconds of a take that fit between its start and the end of the loop. */
+const takeLength = (take: VocalTake, buffer: Tone.ToneAudioBuffer, total: number, stepSeconds: number) =>
+  Math.max(0, Math.min(buffer.duration, (total - take.start) * stepSeconds))
 
 const dbFromGain = (v: number) => (v <= 0.001 ? -Infinity : 20 * Math.log10(v))
 
@@ -149,6 +165,11 @@ export class Engine {
   private reverb: Tone.Reverb
   private tickId: number | null = null
   private step = 0
+  // Vocal takes: decoded audio, a volume per take, and what is sounding now.
+  private vocalBuffers = new Map<string, Tone.ToneAudioBuffer>()
+  private vocalBus = new Map<string, Tone.Volume>()
+  private vocalSources = new Set<Tone.ToneBufferSource>()
+  private vocalReverb: Tone.Volume
   onStep: ((step: number) => void) | null = null
 
   constructor() {
@@ -157,6 +178,45 @@ export class Engine {
     this.reverb = new Tone.Reverb({ decay: 3.5, wet: 1 })
     const reverbReturn = new Tone.Volume(-12).connect(this.master)
     this.reverb.connect(reverbReturn)
+    // A little room on the voice so it sits in the mix.
+    this.vocalReverb = new Tone.Volume(-6).connect(this.reverb)
+  }
+
+  /** Give the engine the audio for a vocal take (null removes it). */
+  setVocalAudio(id: string, audio: VocalAudio | null) {
+    if (!audio) this.vocalBuffers.delete(id)
+    else this.vocalBuffers.set(id, toBuffer(Tone.getContext(), audio))
+  }
+
+  private syncVocals(song: Song) {
+    const ids = new Set(song.vocals.map((v) => v.id))
+    for (const [id, bus] of this.vocalBus) {
+      if (!ids.has(id)) {
+        bus.dispose()
+        this.vocalBus.delete(id)
+      }
+    }
+    for (const v of song.vocals) {
+      let bus = this.vocalBus.get(v.id)
+      if (!bus) {
+        bus = new Tone.Volume(dbFromGain(v.volume)).connect(this.master)
+        bus.connect(this.vocalReverb)
+        this.vocalBus.set(v.id, bus)
+      }
+      const audible = this.soloId ? v.id === this.soloId : !v.muted
+      bus.volume.rampTo(audible ? dbFromGain(v.volume) : -Infinity, 0.05)
+    }
+  }
+
+  private stopVocals(time?: number) {
+    for (const src of this.vocalSources) {
+      try {
+        src.stop(time)
+      } catch {
+        /* already stopped */
+      }
+    }
+    if (time === undefined) this.vocalSources.clear()
   }
 
   setSong(song: Song) {
@@ -184,6 +244,7 @@ export class Engine {
       const audible = this.soloId ? t.id === this.soloId : !t.muted
       v.voice.output.volume.rampTo(audible ? dbFromGain(t.volume) : -Infinity, 0.05)
     }
+    this.syncVocals(song)
   }
 
   setSolo(id: string | null) {
@@ -195,14 +256,16 @@ export class Engine {
     return Tone.getTransport().state === 'started'
   }
 
-  async play() {
+  /** Start from the top of the loop, now or at an exact audio-clock time. */
+  async play(at?: number) {
     await Tone.start()
     const transport = Tone.getTransport()
+    if (transport.state === 'started') this.stop()
     if (this.tickId === null) {
       this.tickId = transport.scheduleRepeat((time) => this.tick(time), '16n')
     }
     this.step = 0
-    transport.start('+0.05')
+    transport.start(at ?? '+0.05')
   }
 
   stop() {
@@ -213,6 +276,7 @@ export class Engine {
       this.tickId = null
     }
     this.step = 0
+    this.stopVocals()
     this.onStep?.(-1)
   }
 
@@ -281,6 +345,22 @@ export class Engine {
       if (!v) continue
       for (const n of t.notes) if (n.start === step) v.voice.trigger(n, time, stepSeconds)
     }
+    for (const take of song.vocals) {
+      if (take.start !== step) continue
+      const buffer = this.vocalBuffers.get(take.id)
+      const bus = this.vocalBus.get(take.id)
+      if (!buffer || !bus) continue
+      const len = takeLength(take, buffer, total, stepSeconds)
+      if (len <= 0) continue
+      const src = new Tone.ToneBufferSource(buffer).connect(bus)
+      src.fadeOut = 0.01
+      src.onended = () => {
+        this.vocalSources.delete(src)
+        src.dispose()
+      }
+      this.vocalSources.add(src)
+      src.start(time, 0, len)
+    }
     Tone.getDraw().schedule(() => this.onStep?.(step), time)
     this.step = step + 1
   }
@@ -290,6 +370,8 @@ export class Engine {
     this.stop()
     for (const v of this.voices.values()) v.voice.dispose()
     this.voices.clear()
+    for (const b of this.vocalBus.values()) b.dispose()
+    this.vocalBus.clear()
   }
 }
 
@@ -298,7 +380,7 @@ export class Engine {
  * engine plays, `loops` times through plus a short tail for reverb. Muted
  * tracks are left out; solo is ignored so the export is the full mix.
  */
-export async function renderSong(song: Song, loops = 4): Promise<{ channels: Float32Array[]; sampleRate: number }> {
+export async function renderSong(song: Song, loops = 4, vocals: Record<string, VocalAudio> = {}): Promise<{ channels: Float32Array[]; sampleRate: number }> {
   const total = song.bars * STEPS_PER_BAR
   const stepSeconds = 60 / song.bpm / 4
   const duration = total * loops * stepSeconds + 3
@@ -318,6 +400,14 @@ export async function renderSong(song: Song, loops = 4): Promise<{ channels: Flo
     const voices = song.tracks
       .filter((t) => !t.muted && t.notes.length)
       .map((t) => ({ track: t, voice: makeVoice(t, master, reverb) }))
+    const vocalSend = new Tone.Volume(-6).connect(reverb)
+    const takes = song.vocals
+      .filter((v) => !v.muted && vocals[v.id])
+      .map((v) => {
+        const bus = new Tone.Volume(dbFromGain(v.volume)).connect(master)
+        bus.connect(vocalSend)
+        return { take: v, bus, buffer: toBuffer(ctx, vocals[v.id]) }
+      })
 
     let step = 0
     transport.scheduleRepeat((time) => {
@@ -325,6 +415,11 @@ export async function renderSong(song: Song, loops = 4): Promise<{ channels: Flo
       const s = step % total
       for (const { track, voice } of voices) {
         for (const n of track.notes) if (n.start === s) voice.trigger(n, time, stepSeconds)
+      }
+      for (const { take, bus, buffer } of takes) {
+        if (take.start !== s) continue
+        const len = takeLength(take, buffer, total, stepSeconds)
+        if (len > 0) new Tone.ToneBufferSource(buffer).connect(bus).start(time, 0, len)
       }
       step++
     }, '16n')

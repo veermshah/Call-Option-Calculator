@@ -75,11 +75,14 @@ When the musician asks for a change, start from the current song you're given an
 
 Write music that sounds intentional: stay in key, give basslines and melodies shape and repetition with variation, vary velocity for groove, and leave space. Return the complete song every time, every note included.`
 
+/** Vocal takes are audio the composer can't see or change; leave them out of its view. */
+const withoutVocals = ({ vocals: _v, ...rest }: Song) => rest
+
 function userContent(req: ComposeRequest): string {
   const locked = new Set(req.lockedTrackIds ?? [])
   const current = req.song.tracks.length
     ? JSON.stringify({
-        ...req.song,
+        ...withoutVocals(req.song),
         tracks: req.song.tracks.map(({ id, muted: _m, locked: _l, ...t }) => (locked.has(id) ? { ...t, locked: true } : t))
       })
     : '(empty — nothing composed yet)'
@@ -120,8 +123,11 @@ export function parseComposeOutput(text: string, previous: Song, lockedIds: stri
     }
   }
   const message = typeof obj.message === 'string' && obj.message ? obj.message : 'Done.'
-  // Lyrics aren't part of the model's answer; carry them over.
-  return { ok: true, song: { ...restoreLocked(song, previous, lockedIds), lyrics: previous.lyrics }, message }
+  // Lyrics and vocal takes aren't part of the model's answer; carry them over.
+  const next = restoreLocked(song, previous, lockedIds)
+  const steps = next.bars * STEPS_PER_BAR
+  const vocals = previous.vocals.map((v) => ({ ...v, start: Math.min(v.start, steps - 1) }))
+  return { ok: true, song: { ...next, lyrics: previous.lyrics, vocals }, message }
 }
 
 export async function compose(
