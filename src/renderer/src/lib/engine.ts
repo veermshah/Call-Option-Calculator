@@ -1,6 +1,7 @@
 import * as Tone from 'tone'
 import type { DrumSound, Instrument, Note, Song, Track } from '@shared/song'
 import { STEPS_PER_BAR } from '@shared/song'
+import { LiveNotes, MonoStack } from '@shared/liveNotes'
 
 // A small Tone.js engine: one 16th-note tick drives every track, reading the
 // latest song on each tick so edits are heard immediately.
@@ -99,6 +100,9 @@ function makeVoice(track: Track, master: Tone.ToneAudioNode, reverb: Tone.ToneAu
   }
   const synth = melodic(track.instrument, output, reverb)
   synth.volume.value = -8
+  // One-voice synths (bass) play the newest held key and fall back to the
+  // previous one on release, instead of going silent while a key is still down.
+  const mono = synth instanceof Tone.MonoSynth ? new MonoStack() : null
   return {
     output,
     trigger: (note, time, stepSeconds) => {
@@ -106,14 +110,19 @@ function makeVoice(track: Track, master: Tone.ToneAudioNode, reverb: Tone.ToneAu
     },
     attack: (pitch, velocity) => {
       try {
+        mono?.push(pitch)
         synth.triggerAttack(pitch, Tone.now() + 0.005, velocity)
       } catch (err) {
         console.warn('note skipped', pitch, err)
       }
     },
     release: (pitch) => {
-      if (synth instanceof Tone.MonoSynth) synth.triggerRelease(Tone.now() + 0.005)
-      else synth.triggerRelease(pitch, Tone.now() + 0.005)
+      const t = Tone.now() + 0.005
+      if (synth instanceof Tone.MonoSynth) {
+        const next = mono!.remove(pitch)
+        if (next === null) synth.triggerRelease(t)
+        else if (next) synth.setNote(next, t)
+      } else synth.triggerRelease(pitch, t)
     },
     dispose: () => { synth.dispose(); output.dispose() }
   }
@@ -144,12 +153,13 @@ export class Engine {
     transport.swing = song.swing
     transport.swingSubdivision = '16n'
 
-    const live = new Set(song.tracks.map((t) => t.id))
+    const ids = new Set(song.tracks.map((t) => t.id))
     for (const [id, v] of this.voices) {
       const track = song.tracks.find((t) => t.id === id)
-      if (!live.has(id) || !track || track.instrument !== v.instrument) {
+      if (!ids.has(id) || !track || track.instrument !== v.instrument) {
         v.voice.dispose()
         this.voices.delete(id)
+        this.live.forgetTrack(id)
       }
     }
     for (const t of song.tracks) {
@@ -204,21 +214,28 @@ export class Engine {
     return ((steps % total) + total) % total
   }
 
-  private held = new Set<string>()
+  // Counts how many keys hold each pitch so the synth gets one attack and one
+  // release per pitch even when chords share notes.
+  private live = new LiveNotes({
+    attack: (trackId, pitch, velocity) => this.voices.get(trackId)?.voice.attack(pitch, velocity),
+    release: (trackId, pitch) => this.voices.get(trackId)?.voice.release(pitch)
+  })
 
   async noteOn(trackId: string, pitch: string, velocity = 0.8) {
-    const k = `${trackId}|${pitch}`
-    this.held.add(k)
+    this.live.press(trackId, pitch)
     // The browser keeps audio suspended until the first key or click; wait for
-    // it, and skip the note if the key was already let go in the meantime.
+    // it. `start` skips the note if the key was already let go meanwhile.
     if (Tone.getContext().state !== 'running') await Tone.start()
-    if (!this.held.has(k)) return
-    this.voices.get(trackId)?.voice.attack(pitch, velocity)
+    this.live.start(trackId, pitch, velocity)
   }
 
   noteOff(trackId: string, pitch: string) {
-    if (!this.held.delete(`${trackId}|${pitch}`)) return
-    this.voices.get(trackId)?.voice.release(pitch)
+    this.live.release(trackId, pitch)
+  }
+
+  /** Panic: stop every live-played note on every track. */
+  allNotesOff() {
+    this.live.releaseAll()
   }
 
   /** Audition a single note (e.g. when clicking the piano roll). */
@@ -247,6 +264,7 @@ export class Engine {
   }
 
   dispose() {
+    this.allNotesOff()
     this.stop()
     for (const v of this.voices.values()) v.voice.dispose()
     this.voices.clear()
