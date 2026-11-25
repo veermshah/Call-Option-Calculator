@@ -300,7 +300,8 @@ export default function App() {
       if (path) flash(`Exported ${path}`)
     } catch (err) {
       console.error(err)
-      flash('Could not render audio. Try Download MIDI instead.')
+      const why = err instanceof Error && err.message ? ` (${err.message.slice(0, 120)})` : ''
+      flash(`Could not render audio${why}. Try Download MIDI instead.`)
     } finally {
       setExporting(false)
     }
