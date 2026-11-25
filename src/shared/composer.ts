@@ -1,5 +1,6 @@
 import { callStructured } from './claude'
-import { DRUM_SOUNDS, INSTRUMENTS, STEPS_PER_BAR, normalizeSong, type Song, type Track } from './song'
+import { DRUM_SOUNDS, INSTRUMENTS, STEPS_PER_BAR, midiToPitch, normalizeSong, type Song, type Track } from './song'
+import { instrumentGroups } from './instruments'
 import type { ComposeRequest, ComposeResult } from './ipc'
 
 export const DEFAULT_MODEL = 'claude-opus-5-5'
@@ -13,7 +14,7 @@ const NOTE_SCHEMA = {
   properties: {
     pitch: {
       type: 'string',
-      description: `Pitch like "C4", "F#2", "Bb3". On drum tracks use one of: ${DRUM_SOUNDS.join(', ')}.`
+      description: `Pitch like "C4", "F#2", "Bb3". On drum kit tracks use one of: ${DRUM_SOUNDS.join(', ')}.`
     },
     start: { type: 'integer', description: '16th-note step from the start of the loop (0-based).' },
     length: { type: 'integer', description: 'Duration in 16th-note steps (>= 1).' },
@@ -59,13 +60,29 @@ export const SONG_RESPONSE_SCHEMA = {
   }
 } as const
 
+/** The instrument list as the composer sees it: id, name and comfortable range, by family. */
+export function instrumentGuide(): string {
+  return instrumentGroups()
+    .map(
+      (g) =>
+        `  ${g.category}: ` +
+        g.items
+          .map((d) => (d.role === 'drums' ? `${d.id} (${d.label})` : `${d.id} (${d.label}, ${midiToPitch(d.home[0])}-${midiToPitch(d.home[1])})`))
+          .join('; ')
+    )
+    .join('\n')
+}
+
 const SYSTEM_PROMPT = `You are the composer inside Riff, a desktop loop studio. A musician describes what they want and you write or revise a looping multi-track pattern.
 
 How the studio works:
 - Time is in 16th-note steps; one bar is ${STEPS_PER_BAR} steps. A loop of N bars has steps 0 to N*${STEPS_PER_BAR}-1, and notes must end inside the loop.
-- Instruments: ${INSTRUMENTS.join(', ')}. "drums" tracks use the sound names ${DRUM_SOUNDS.join(', ')} as pitches; every other instrument uses pitches like "C3".
-- Sensible ranges: bass C1-C3, keys and pads C3-C5, lead and pluck C4-C6.
-- Each track is one instrument. Use a handful of tracks (typically 3-6), each with a clear role.
+- Each track is one instrument, chosen by id from this list (name and comfortable range in brackets):
+${instrumentGuide()}
+- Drum kit tracks (everything under Drums) use the sound names ${DRUM_SOUNDS.join(', ')} as pitches; every other instrument uses pitches like "C3". Instruments under Bass play one note at a time.
+- Pick instruments that suit the style: real ones (piano, guitars, upright-bass, strings, brass, acoustic kits) for acoustic, jazz, soul, folk and cinematic music; the synths, electronic basses and electronic kits for electronic styles. The original synths (drums, bass, lead, pad, pluck, keys) are always fine. Keep an existing track's instrument unless the musician asks for a different sound.
+- Recorded instruments ring for about 3 seconds per note, so for chords held longer than that, strike them again each bar.
+- Use a handful of tracks (typically 3-6), each with a clear role.
 
 Some tracks may be marked LOCKED: the musician played them by hand. Never change a locked track's notes; return it exactly as given (same name, instrument and notes) and write the other parts to fit it: match its harmony, rhythm and register, and avoid clashing with it.
 

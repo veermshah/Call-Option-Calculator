@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { DRUM_SOUNDS, midiToPitch, pitchToMidi, STEPS_PER_BAR, type Note, type Track } from '@shared/song'
+import { instrumentDef, isDrumKit } from '@shared/instruments'
 import { colorFor } from '../lib/colors'
 
 interface Props {
@@ -11,20 +12,13 @@ interface Props {
   onPreview?: (note: Note) => void
 }
 
-const DEFAULT_RANGE: Record<string, [number, number]> = {
-  bass: [28, 52],
-  keys: [48, 72],
-  pad: [48, 72],
-  lead: [60, 84],
-  pluck: [60, 84]
-}
 
 const LABEL_W = 44
 const BLACK = new Set([1, 3, 6, 8, 10])
 
 function rowsFor(track: Track): string[] {
-  if (track.instrument === 'drums') return [...DRUM_SOUNDS].reverse()
-  const [dLo, dHi] = DEFAULT_RANGE[track.instrument] ?? [48, 72]
+  if (isDrumKit(track.instrument)) return [...DRUM_SOUNDS].reverse()
+  const [dLo, dHi] = instrumentDef(track.instrument).home
   const midis = track.notes.map((n) => pitchToMidi(n.pitch)).filter((m): m is number => m !== null)
   let lo = Math.min(dLo, ...midis.map((m) => m - 2))
   let hi = Math.max(dHi, ...midis.map((m) => m + 2))
@@ -49,7 +43,7 @@ export function PianoRoll({ track, bars, playStep, compact, onChange, onPreview 
   const drag = useRef<{ note: Note; originStep: number } | null>(null)
   const [draft, setDraft] = useState<Note[] | null>(null)
 
-  const drums = track.instrument === 'drums'
+  const drums = isDrumKit(track.instrument)
   const rows = useMemo(() => rowsFor(track), [track])
   const rowIndex = useMemo(() => new Map(rows.map((r, i) => [r, i])), [rows])
   const totalSteps = bars * STEPS_PER_BAR

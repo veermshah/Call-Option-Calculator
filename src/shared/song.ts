@@ -1,12 +1,15 @@
 // The song model shared by the main process (Claude composes it) and the
 // renderer (plays and edits it). Time is measured in 16th-note steps.
 
+import { INSTRUMENT_IDS, isBassRole, isDrumKit, isInstrument, type InstrumentId } from './instruments'
+
 export const STEPS_PER_BAR = 16
 
-export const INSTRUMENTS = ['drums', 'bass', 'lead', 'pad', 'pluck', 'keys'] as const
-export type Instrument = (typeof INSTRUMENTS)[number]
+/** Every instrument id; see instruments.ts for labels, categories and sounds. */
+export const INSTRUMENTS = INSTRUMENT_IDS
+export type Instrument = InstrumentId
 
-export const DRUM_SOUNDS = ['kick', 'snare', 'clap', 'hat', 'openhat', 'tom', 'rim'] as const
+export const DRUM_SOUNDS = ['kick', 'snare', 'clap', 'hat', 'openhat', 'tom', 'rim', 'crash', 'ride', 'cowbell'] as const
 export type DrumSound = (typeof DRUM_SOUNDS)[number]
 
 export interface Note {
@@ -130,25 +133,25 @@ export function normalizeSong(raw: unknown): Song {
 
   const tracks: Track[] = tracksRaw.slice(0, 12).map((t) => {
     const tr = (t ?? {}) as Record<string, unknown>
-    const instrument = (INSTRUMENTS as readonly string[]).includes(tr.instrument as string)
-      ? (tr.instrument as Instrument)
-      : 'keys'
+    const instrument: Instrument = isInstrument(tr.instrument) ? tr.instrument : 'keys'
+    const drums = isDrumKit(instrument)
+    const mono = isBassRole(instrument)
     const notesRaw = Array.isArray(tr.notes) ? tr.notes : []
     const notes: Note[] = []
-    // Monophonic voices (drum hits, bass) can't fire twice at the same instant.
+    // The same drum hit or pitch can't fire twice at once, and basses play one note at a time.
     const seen = new Set<string>()
     for (const n of notesRaw) {
       const nr = (n ?? {}) as Record<string, unknown>
       const pitch = typeof nr.pitch === 'string' ? nr.pitch.trim() : ''
       const valid =
-        instrument === 'drums'
+        drums
           ? (DRUM_SOUNDS as readonly string[]).includes(pitch)
           : pitchToMidi(pitch) !== null
       if (!valid) continue
       const start = Math.round(num(nr.start, -1))
       if (start < 0 || start >= totalSteps) continue
       const length = clamp(Math.round(num(nr.length, 1)), 1, totalSteps - start)
-      const key = instrument === 'bass' ? `${start}` : `${pitch}@${start}`
+      const key = mono ? `${start}` : `${pitch}@${start}`
       if (seen.has(key)) continue
       seen.add(key)
       notes.push({ pitch, start, length, velocity: clamp(num(nr.velocity, 0.8), 0.05, 1) })

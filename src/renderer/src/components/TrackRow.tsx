@@ -1,4 +1,5 @@
-import { INSTRUMENTS, type Instrument, type Note, type Track } from '@shared/song'
+import type { Instrument, Note, Track } from '@shared/song'
+import { instrumentGroups, isDrumKit } from '@shared/instruments'
 import { colorFor } from '../lib/colors'
 import { PianoRoll } from './PianoRoll'
 
@@ -13,9 +14,20 @@ interface Props {
   onDelete: () => void
   onSolo: () => void
   onPreview: (note: Note) => void
+  /** Play a short phrase on an instrument so it can be heard. */
+  onAudition?: (instrument: Instrument) => void
 }
 
-export function TrackRow({ track, bars, playStep, selected, soloed, onSelect, onUpdate, onDelete, onSolo, onPreview }: Props) {
+const GROUPS = instrumentGroups()
+
+export function TrackRow({ track, bars, playStep, selected, soloed, onSelect, onUpdate, onDelete, onSolo, onPreview, onAudition }: Props) {
+  const pick = (instrument: Instrument) => {
+    // Drum hits and pitched notes don't translate, so switching between them starts the part empty.
+    const keep = isDrumKit(instrument) === isDrumKit(track.instrument)
+    onUpdate({ instrument, notes: keep ? track.notes : [] })
+    onAudition?.(instrument)
+  }
+
   return (
     <div className={`track${selected ? ' selected' : ''}${track.muted ? ' muted' : ''}`}>
       <div className="track-head" onClick={onSelect}>
@@ -27,14 +39,32 @@ export function TrackRow({ track, bars, playStep, selected, soloed, onSelect, on
           onChange={(e) => onUpdate({ name: e.target.value }, false)}
         />
         <select
+          className="instrument-picker"
           value={track.instrument}
+          title="Instrument"
           onClick={(e) => e.stopPropagation()}
-          onChange={(e) => onUpdate({ instrument: e.target.value as Instrument, notes: e.target.value === 'drums' || track.instrument === 'drums' ? [] : track.notes })}
+          onChange={(e) => pick(e.target.value as Instrument)}
         >
-          {INSTRUMENTS.map((i) => (
-            <option key={i} value={i}>{i}</option>
+          {GROUPS.map((g) => (
+            <optgroup key={g.category} label={g.category}>
+              {g.items.map((d) => (
+                <option key={d.id} value={d.id}>{d.label}</option>
+              ))}
+            </optgroup>
           ))}
         </select>
+        {onAudition && (
+          <button
+            className="icon audition"
+            title="Hear this instrument"
+            onClick={(e) => {
+              e.stopPropagation()
+              onAudition(track.instrument)
+            }}
+          >
+            ▶
+          </button>
+        )}
         <div className="track-buttons" onClick={(e) => e.stopPropagation()}>
           <button
             className={`toggle lock${track.locked ? ' on' : ''}`}
